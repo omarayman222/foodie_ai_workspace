@@ -44,6 +44,12 @@ app.use('/api/substitutions', substitutionRoutes);
 const cookingRoutes = require('./src/routes/cookingRoutes');
 app.use('/api/cook', cookingRoutes);
 
+const favouriteRoutes = require('./src/routes/favouriteRoutes');
+app.use('/api/favourites', favouriteRoutes);
+
+const mealPlanRoutes = require('./src/routes/mealPlanRoutes');
+app.use('/api/meal-plan', mealPlanRoutes);
+
 const recommendationRoutes = require('./src/routes/recommendationRoutes');
 app.use('/api/recommendations', recommendationRoutes);
 

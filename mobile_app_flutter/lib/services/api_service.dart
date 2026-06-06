@@ -17,17 +17,10 @@ class ApiService {
   Future<Map<String, dynamic>> getProfile() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/users/profile'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/users/profile'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to fetch profile'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> profileData) async {
@@ -35,68 +28,59 @@ class ApiService {
       final headers = await _getHeaders();
       final response = await http.put(
         Uri.parse('${ApiConstants.baseUrl}/users/profile'),
-        headers: headers,
-        body: jsonEncode(profileData),
+        headers: headers, body: jsonEncode(profileData),
       );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       final err = jsonDecode(response.body);
       return {'success': false, 'message': err['error'] ?? 'Failed to update profile'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Pantry ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getPantry() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/pantry'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/pantry'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to fetch pantry'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
-  Future<Map<String, dynamic>> savePantry(List<String> ingredients) async {
+  // Accepts items: [{name, expiryDate?, quantity?}]
+  Future<Map<String, dynamic>> savePantry(List<Map<String, dynamic>> items) async {
     try {
       final headers = await _getHeaders();
       final response = await http.put(
         Uri.parse('${ApiConstants.baseUrl}/pantry/update'),
         headers: headers,
-        body: jsonEncode({'ingredients': ingredients}),
+        body: jsonEncode({'items': items}),
       );
-      if (response.statusCode == 200) {
-        return {'success': true};
-      }
+      if (response.statusCode == 200) return {'success': true};
       return {'success': false, 'message': 'Failed to save pantry'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Recommendations ───────────────────────────────────────
   Future<Map<String, dynamic>> getRecommendations() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/recommendations'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/recommendations'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to fetch recommendations'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  // ── Recipe Search ─────────────────────────────────────────
+  Future<Map<String, dynamic>> searchRecipes({String q = '', String cuisine = '', int page = 1}) async {
+    try {
+      final headers = await _getHeaders();
+      final uri = Uri.parse('${ApiConstants.baseUrl}/recipes/search').replace(queryParameters: {
+        'q': q, 'cuisine': cuisine, 'page': page.toString(),
+      });
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
+      return {'success': false, 'message': 'Search failed'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Chat ──────────────────────────────────────────────────
@@ -105,86 +89,47 @@ class ApiService {
       final headers = await _getHeaders();
       final body = <String, dynamic>{'message': message};
       if (currentRecipeId != null) body['currentRecipeId'] = currentRecipeId;
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/chat'),
-        headers: headers,
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/chat'), headers: headers, body: jsonEncode(body));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Foodie AI failed to respond.'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Shopping List ─────────────────────────────────────────
   Future<Map<String, dynamic>> getShoppingList() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/shopping-list'),
-        headers: headers,
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/shopping-list'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to fetch shopping list'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   Future<Map<String, dynamic>> addToShoppingList(List<String> items) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/shopping-list/add'),
-        headers: headers,
-        body: jsonEncode({'items': items}),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/shopping-list/add'), headers: headers, body: jsonEncode({'items': items}));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to add items'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   Future<Map<String, dynamic>> removeFromShoppingList(List<String> items) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/shopping-list/remove'),
-        headers: headers,
-        body: jsonEncode({'items': items}),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/shopping-list/remove'), headers: headers, body: jsonEncode({'items': items}));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to remove items'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   Future<Map<String, dynamic>> generateShoppingList(String recipeId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/shopping-list/generate'),
-        headers: headers,
-        body: jsonEncode({'recipeId': recipeId}),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/shopping-list/generate'), headers: headers, body: jsonEncode({'recipeId': recipeId}));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to generate list'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Ratings ───────────────────────────────────────────────
@@ -193,35 +138,66 @@ class ApiService {
       final headers = await _getHeaders();
       final body = <String, dynamic>{'recipeId': recipeId, 'rating': rating};
       if (feedbackText != null && feedbackText.isNotEmpty) body['feedbackText'] = feedbackText;
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/ratings'),
-        headers: headers,
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/ratings'), headers: headers, body: jsonEncode(body));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to save rating'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
   // ── Substitutions ─────────────────────────────────────────
   Future<Map<String, dynamic>> getSubstitutions(String recipeId, String ingredient) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/substitutions'),
-        headers: headers,
-        body: jsonEncode({'recipeId': recipeId, 'ingredientToReplace': ingredient}),
-      );
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/substitutions'), headers: headers, body: jsonEncode({'recipeId': recipeId, 'ingredientToReplace': ingredient}));
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to get substitutions'};
-    } catch (e) {
-      return {'success': false, 'message': 'Network error'};
-    }
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  // ── Favourites ────────────────────────────────────────────
+  Future<Map<String, dynamic>> getFavourites() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/favourites'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
+      return {'success': false, 'message': 'Failed to fetch favourites'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  Future<Map<String, dynamic>> addFavourite(Map<String, dynamic> recipe) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/favourites'), headers: headers, body: jsonEncode(recipe));
+      if (response.statusCode == 200) return {'success': true};
+      return {'success': false, 'message': 'Failed to add favourite'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  Future<Map<String, dynamic>> removeFavourite(String recipeId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.delete(Uri.parse('${ApiConstants.baseUrl}/favourites/$recipeId'), headers: headers);
+      if (response.statusCode == 200) return {'success': true};
+      return {'success': false, 'message': 'Failed to remove favourite'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  Future<bool> isFavourite(String recipeId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/favourites/check/$recipeId'), headers: headers);
+      if (response.statusCode == 200) return jsonDecode(response.body)['isFavourite'] == true;
+      return false;
+    } catch (_) { return false; }
+  }
+
+  // ── Meal Plan ─────────────────────────────────────────────
+  Future<Map<String, dynamic>> getMealPlan() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/meal-plan'), headers: headers);
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
+      return {'success': false, 'message': 'Failed to generate meal plan'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
+import '../utils/theme_notifier.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -164,6 +165,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   hint: 'e.g. spicy, Indian',
                   onAdd: () => _addToList(_profile.dislikedCuisines, 'Disliked cuisine'),
                   onRemove: (i) => setState(() => _profile.dislikedCuisines.removeAt(i)),
+                ),
+                const SizedBox(height: 16),
+                // ── Dark Mode ────────────────────────────────
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: ThemeNotifier.instance,
+                  builder: (_, mode, __) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)],
+                    ),
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: Icon(
+                        mode == ThemeMode.dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                        color: mode == ThemeMode.dark ? Colors.indigo : Colors.amber[700],
+                      ),
+                      title: Text('Dark Mode', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
+                      subtitle: Text(mode == ThemeMode.dark ? 'On' : 'Off',
+                          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+                      value: mode == ThemeMode.dark,
+                      activeThumbColor: Colors.indigo,
+                      onChanged: (_) => ThemeNotifier.instance.toggle(),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 32),
               ],

@@ -3,7 +3,7 @@ const router = express.Router();
 const pantryController = require('../controllers/pantryController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// Route to add ingredients to the pantry
+router.get('/', authMiddleware, pantryController.getPantry);
 router.post('/add', authMiddleware, pantryController.addIngredients);
 
 // NEW route to REPLACE items

@@ -1,6 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
 import '../services/api_service.dart';
+
+class PantryItem {
+  String name;
+  DateTime? expiryDate;
+  PantryItem({required this.name, this.expiryDate});
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'expiryDate': expiryDate?.toIso8601String(),
+  };
+
+  factory PantryItem.fromJson(dynamic j) {
+    if (j is String) return PantryItem(name: j);
+    return PantryItem(
+      name: j['name'] ?? '',
+      expiryDate: j['expiryDate'] != null ? DateTime.tryParse(j['expiryDate']) : null,
+    );
+  }
+
+  bool get isExpired => expiryDate != null && expiryDate!.isBefore(DateTime.now());
+  bool get expiringSoon {
+    if (expiryDate == null || isExpired) return false;
+    return expiryDate!.difference(DateTime.now()).inDays <= 3;
+  }
+}
 
 class PantryScreen extends StatefulWidget {
   const PantryScreen({super.key});
@@ -11,24 +37,25 @@ class PantryScreen extends StatefulWidget {
 
 class _PantryScreenState extends State<PantryScreen> {
   final _api = ApiService();
-  final _inputController = TextEditingController();
-  List<String> _ingredients = [];
+  final _inputCtrl = TextEditingController();
+  List<PantryItem> _items = [];
   bool _loading = true;
-  bool _saving = false;
+  bool _saving  = false;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     final result = await _api.getPantry();
     if (!mounted) return;
     if (result['success'] == true) {
+      final data = result['data'];
+      final rawItems = data['items'] as List?;
+      final rawIngr  = data['ingredients'] as List?;
+      final source   = (rawItems != null && rawItems.isNotEmpty) ? rawItems : (rawIngr ?? []);
       setState(() {
-        _ingredients = List<String>.from(result['data']['ingredients'] ?? []);
+        _items   = source.map((x) => PantryItem.fromJson(x)).toList();
         _loading = false;
       });
     } else {
@@ -37,42 +64,55 @@ class _PantryScreenState extends State<PantryScreen> {
   }
 
   void _addIngredients() {
-    final text = _inputController.text.trim();
+    final text = _inputCtrl.text.trim();
     if (text.isEmpty) return;
-    final newItems = text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    final newNames = text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
     setState(() {
-      for (final item in newItems) {
-        final lower = item.toLowerCase();
-        if (!_ingredients.any((i) => i.toLowerCase() == lower)) {
-          _ingredients.add(item);
+      for (final name in newNames) {
+        if (!_items.any((i) => i.name.toLowerCase() == name.toLowerCase())) {
+          _items.add(PantryItem(name: name));
         }
       }
     });
-    _inputController.clear();
+    _inputCtrl.clear();
   }
 
-  void _remove(String item) => setState(() => _ingredients.remove(item));
+  void _remove(PantryItem item) => setState(() => _items.remove(item));
+
+  Future<void> _pickExpiry(PantryItem item) async {
+    final now   = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: item.expiryDate ?? now.add(const Duration(days: 7)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365 * 3)),
+      helpText: 'Pick expiry date for "${item.name}"',
+    );
+    if (picked != null) setState(() => item.expiryDate = picked);
+  }
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final result = await _api.savePantry(_ingredients);
+    final result = await _api.savePantry(_items.map((i) => i.toJson()).toList());
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(result['success'] == true ? 'Pantry saved!' : result['message']),
+      content: Text(result['success'] == true ? '✅ Pantry saved!' : result['message'] ?? 'Error'),
       backgroundColor: result['success'] == true ? Colors.green : Colors.redAccent,
     ));
   }
 
+  // Summary badges
+  int get _expiredCount   => _items.where((i) => i.isExpired).length;
+  int get _expiringSoonCount => _items.where((i) => i.expiringSoon).length;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Text('My Pantry', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.black87)),
+        title: Text('My Pantry', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
         actions: [
           TextButton.icon(
             onPressed: _saving ? null : _save,
@@ -84,82 +124,218 @@ class _PantryScreenState extends State<PantryScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Add input
-                Container(
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)]),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Add Ingredients', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text('Separate multiple items with commas', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _inputController,
-                          onSubmitted: (_) => _addIngredients(),
-                          decoration: InputDecoration(
-                            hintText: 'e.g. chicken, rice, tomatoes',
-                            hintStyle: GoogleFonts.poppins(color: Colors.grey[400], fontSize: 13),
-                            filled: true, fillColor: Colors.grey[100],
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _addIngredients,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        ),
-                        child: const Icon(Icons.add_rounded),
-                      ),
-                    ]),
+          ? _SkeletonPantry()
+          : RefreshIndicator(
+              onRefresh: _load,
+              color: cs.primary,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // ── Add box ─────────────────────────────────
+                  _AddBox(ctrl: _inputCtrl, onAdd: _addIngredients),
+                  const SizedBox(height: 16),
+
+                  // ── Warning badges ───────────────────────────
+                  if (_expiredCount > 0 || _expiringSoonCount > 0)
+                    _WarningBanner(expired: _expiredCount, expiringSoon: _expiringSoonCount),
+
+                  // ── Header row ───────────────────────────────
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    Text('Pantry Items', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+                      child: Text('${_items.length}', style: GoogleFonts.poppins(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600)),
+                    ),
                   ]),
-                ),
-                const SizedBox(height: 20),
-                Row(children: [
-                  Text('Pantry Items', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: theme.colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-                    child: Text('${_ingredients.length}', style: GoogleFonts.poppins(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.w600)),
-                  ),
-                ]),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: _ingredients.isEmpty
-                      ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.kitchen_outlined, size: 64, color: Colors.grey),
-                          const SizedBox(height: 12),
-                          Text('Your pantry is empty.\nAdd some ingredients above!',
-                              textAlign: TextAlign.center, style: GoogleFonts.poppins(color: Colors.grey[500])),
-                        ]))
-                      : Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _ingredients.map((item) => Chip(
-                            label: Text(item, style: GoogleFonts.poppins(fontSize: 13)),
-                            deleteIcon: const Icon(Icons.close_rounded, size: 16),
-                            onDeleted: () => _remove(item),
-                            backgroundColor: Colors.white,
-                            side: BorderSide(color: Colors.grey[300]!),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          )).toList(),
-                        ),
-                ),
-              ]),
+                  const SizedBox(height: 12),
+
+                  // ── Items ────────────────────────────────────
+                  if (_items.isEmpty)
+                    _EmptyState()
+                  else
+                    ..._items.map((item) => _ItemTile(
+                      item: item,
+                      onRemove: () => _remove(item),
+                      onPickExpiry: () => _pickExpiry(item),
+                    )),
+
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
     );
   }
+}
+
+// ── Add box ─────────────────────────────────────────────────────────────────
+class _AddBox extends StatelessWidget {
+  final TextEditingController ctrl;
+  final VoidCallback onAdd;
+  const _AddBox({required this.ctrl, required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Add Ingredients', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text('Separate multiple items with commas', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: TextField(
+            controller: ctrl,
+            onSubmitted: (_) => onAdd(),
+            decoration: InputDecoration(
+              hintText: 'e.g. chicken, rice, tomatoes',
+              hintStyle: GoogleFonts.poppins(color: Colors.grey[400], fontSize: 13),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          )),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: onAdd,
+            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
+            child: const Icon(Icons.add_rounded),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Warning banner ──────────────────────────────────────────────────────────
+class _WarningBanner extends StatelessWidget {
+  final int expired;
+  final int expiringSoon;
+  const _WarningBanner({required this.expired, required this.expiringSoon});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: expired > 0 ? Colors.red.withValues(alpha: 0.08) : Colors.amber.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: expired > 0 ? Colors.red.withValues(alpha: 0.3) : Colors.amber.withValues(alpha: 0.4)),
+    ),
+    child: Row(children: [
+      Icon(expired > 0 ? Icons.warning_amber_rounded : Icons.access_time_rounded,
+          color: expired > 0 ? Colors.redAccent : Colors.amber[700], size: 20),
+      const SizedBox(width: 10),
+      Expanded(child: Text(
+        [
+          if (expired > 0) '$expired item${expired > 1 ? 's' : ''} expired',
+          if (expiringSoon > 0) '$expiringSoon expiring within 3 days',
+        ].join(' · '),
+        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600,
+            color: expired > 0 ? Colors.redAccent : Colors.amber[800]),
+      )),
+    ]),
+  );
+}
+
+// ── Item tile ────────────────────────────────────────────────────────────────
+class _ItemTile extends StatelessWidget {
+  final PantryItem item;
+  final VoidCallback onRemove;
+  final VoidCallback onPickExpiry;
+  const _ItemTile({required this.item, required this.onRemove, required this.onPickExpiry});
+
+  Color get _statusColor {
+    if (item.isExpired)    return Colors.redAccent;
+    if (item.expiringSoon) return Colors.amber[700]!;
+    if (item.expiryDate != null) return Colors.green;
+    return Colors.grey[300]!;
+  }
+
+  String get _expiryLabel {
+    if (item.expiryDate == null) return 'Tap to add expiry';
+    if (item.isExpired)          return 'Expired!';
+    final days = item.expiryDate!.difference(DateTime.now()).inDays;
+    if (days == 0) return 'Expires today!';
+    if (days == 1) return 'Expires tomorrow';
+    return 'Expires in $days days';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: item.isExpired ? Colors.red.withValues(alpha: 0.3) : cs.outline.withValues(alpha: 0.2)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(14, 4, 8, 4),
+        leading: Container(
+          width: 10, height: 10,
+          decoration: BoxDecoration(color: _statusColor, shape: BoxShape.circle),
+        ),
+        title: Text(item.name,
+            style: GoogleFonts.poppins(
+              fontSize: 14, fontWeight: FontWeight.w600,
+              decoration: item.isExpired ? TextDecoration.lineThrough : null,
+              color: item.isExpired ? Colors.grey : null,
+            )),
+        subtitle: GestureDetector(
+          onTap: onPickExpiry,
+          child: Row(children: [
+            Icon(Icons.calendar_today_rounded, size: 11, color: _statusColor),
+            const SizedBox(width: 4),
+            Text(_expiryLabel,
+                style: GoogleFonts.poppins(fontSize: 11, color: _statusColor, fontWeight: FontWeight.w500)),
+          ]),
+        ),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(icon: Icon(Icons.edit_calendar_rounded, size: 18, color: cs.primary), onPressed: onPickExpiry, tooltip: 'Set expiry'),
+          IconButton(icon: const Icon(Icons.close_rounded, size: 18, color: Colors.redAccent), onPressed: onRemove, tooltip: 'Remove'),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Skeleton ────────────────────────────────────────────────────────────────
+class _SkeletonPantry extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ListView.builder(
+    padding: const EdgeInsets.all(16),
+    itemCount: 8,
+    itemBuilder: (_, __) => Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        height: 64,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      ),
+    ),
+  );
+}
+
+// ── Empty state ──────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 40),
+    child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.kitchen_outlined, size: 64, color: Colors.grey),
+      const SizedBox(height: 12),
+      Text('Your pantry is empty.\nAdd some ingredients above!',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: Colors.grey[500])),
+    ])),
+  );
 }
