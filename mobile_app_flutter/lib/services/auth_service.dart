@@ -47,6 +47,7 @@ class AuthService {
         // 🚨 THE CRUCIAL STEP: Save the JWT Token to the phone's secure storage
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('jwt_token', data['token']);
+        if (data['userId'] != null) await prefs.setString('user_id', data['userId']);
 
         return {'success': true, 'message': 'Login successful!'};
       } else {

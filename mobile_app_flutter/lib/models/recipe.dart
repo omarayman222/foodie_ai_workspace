@@ -4,7 +4,13 @@ class Recipe {
   final String imageUrl;
   final List<String> ingredients;
   final List<String> instructions;
-  final int prepTime;
+  final String prepTime;
+  final String cookTime;
+  final String totalTime;
+  final String servings;
+  final String nutrition;
+  final String cuisine;
+  final double rating;
 
   Recipe({
     required this.id,
@@ -13,20 +19,40 @@ class Recipe {
     required this.ingredients,
     required this.instructions,
     required this.prepTime,
+    this.cookTime = '',
+    this.totalTime = '',
+    this.servings = '',
+    this.nutrition = '',
+    this.cuisine = '',
+    this.rating = 0.0,
   });
 
-  // This factory method is the translator: JSON to Dart
   factory Recipe.fromJson(Map<String, dynamic> json) {
+    final raw = json['directions'] ?? json['instructions'];
+    List<String> steps = [];
+    if (raw is List) {
+      steps = List<String>.from(raw);
+    } else if (raw is String && raw.isNotEmpty) {
+      steps = raw
+          .split(RegExp(r'\n+'))
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
     return Recipe(
       id: json['_id'] ?? json['id'] ?? '',
-      title: json['title'] ?? 'Unknown Recipe',
-      imageUrl: json['imageUrl'] ?? json['image'] ?? 'https://via.placeholder.com/150', // Fallback image so the app never crashes
-      
-      // We map through lists safely to prevent crashes if the database sends null
+      title: json['recipe_name'] ?? json['title'] ?? 'Unknown Recipe',
+      imageUrl: json['img_src'] ?? json['imageUrl'] ?? '',
       ingredients: json['ingredients'] != null ? List<String>.from(json['ingredients']) : [],
-      instructions: json['instructions'] != null ? List<String>.from(json['instructions']) : [],
-      
-      prepTime: json['prepTime'] ?? 0,
+      instructions: steps,
+      prepTime: json['prep_time'] ?? json['prepTime']?.toString() ?? '',
+      cookTime: json['cook_time'] ?? '',
+      totalTime: json['total_time'] ?? '',
+      servings: json['servings']?.toString() ?? '',
+      nutrition: json['nutrition'] ?? '',
+      cuisine: json['cuisine_path'] ?? '',
+      rating: (json['rating'] ?? 0).toDouble(),
     );
   }
 }

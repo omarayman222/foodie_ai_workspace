@@ -10,7 +10,7 @@ recipes_collection = db["recipes"]
 # 2. Load the AI Model
 print("Downloading/Loading AI Model... This might take a minute.")
 model = SentenceTransformer('all-MiniLM-L6-v2')
-print("Model loaded successfully! 🧠")
+print("Model loaded successfully!")
 
 # 3. Fetch all recipes
 recipes = list(recipes_collection.find({}))
