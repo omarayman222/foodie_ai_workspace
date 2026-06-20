@@ -40,9 +40,18 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       await _api.removeFavourite(r.id);
     } else {
       await _api.addFavourite({
-        'recipeId': r.id, 'recipeName': r.title, 'recipeImage': r.imageUrl,
-        'prepTime': r.prepTime, 'totalTime': r.totalTime,
-        'servings': r.servings, 'cuisine': r.cuisine,
+        'recipeId':    r.id,
+        'recipeName':  r.title,
+        'recipeImage': r.imageUrl,
+        'prepTime':    r.prepTime,
+        'cookTime':    r.cookTime,
+        'totalTime':   r.totalTime,
+        'servings':    r.servings,
+        'cuisine':     r.cuisine,
+        'rating':      r.rating,
+        'nutrition':   r.nutrition,
+        'ingredients': r.ingredients,
+        'directions':  r.instructions.join('\n'),
       });
     }
     if (mounted) {
@@ -140,10 +149,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   }
 
   Future<void> _generateShoppingList() async {
-    final result = await _api.generateShoppingList(widget.recipe.id);
+    final result = await _api.generateShoppingList(
+      widget.recipe.id,
+      ingredients: widget.recipe.ingredients,
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(result['success'] == true ? '🛒 Missing ingredients added to shopping list!' : result['message']),
+      content: Text(result['success'] == true
+          ? (result['data']?['message'] ?? '🛒 Missing ingredients added to shopping list!')
+          : (result['message'] ?? 'Failed to generate list')),
       backgroundColor: result['success'] == true ? Colors.green : Colors.redAccent,
     ));
   }

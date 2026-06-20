@@ -27,12 +27,13 @@ exports.getRecommendations = async (req, res) => {
             medical_conditions: user.profile.medicalConditions || [],
             dislikes: user.profile.dislikes || [],
             disliked_cuisines: user.profile.dislikedCuisines || [],
-        });
+        }, { timeout: 10000 });
 
         res.status(200).json(pythonResponse.data);
     } catch (error) {
         console.error('Error getting recommendations:', error.message);
-        res.status(500).json({ error: 'Failed to get recommendations from AI service.' });
+        const isOffline = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED';
+        res.status(isOffline ? 503 : 500).json({ error: 'Recommendation service is currently offline.' });
     }
 };
 

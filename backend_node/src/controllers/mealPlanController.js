@@ -7,15 +7,22 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 exports.getMealPlan = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const user = await User.findById(userId);
+
+        const [user, pantry] = await Promise.all([
+            User.findById(userId),
+            Pantry.findOne({ userId }),
+        ]);
+
         if (!user) return res.status(404).json({ error: 'User not found' });
 
-        const pantry = await Pantry.findOne({ userId });
-        const ingredients = pantry
-            ? pantry.items && pantry.items.length > 0
-                ? pantry.items.map(i => i.name)
-                : (pantry.ingredients || [])
+        // Resolve pantry ingredients (prefer rich items, fall back to legacy strings)
+        const now = new Date();
+        const pantryItems = pantry?.items?.length
+            ? pantry.items.filter(i => !i.expiryDate || new Date(i.expiryDate) >= now)
             : [];
+        const ingredients = pantryItems.length
+            ? pantryItems.map(i => i.name)
+            : (pantry?.ingredients || []);
 
         const pythonPayload = {
             user_id: userId.toString(),
@@ -30,19 +37,24 @@ exports.getMealPlan = async (req, res) => {
 
         let recipes = [];
         try {
-            const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload);
+            const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 10000 });
             recipes = pythonResponse.data.top_recipes || [];
         } catch (e) {
-            // AI service offline — still return empty plan gracefully
             console.error('Python service error:', e.message);
         }
 
-        // Build a 7-day plan: lunch + dinner per day
-        const plan = DAYS.map((day, i) => ({
-            day,
-            lunch:  recipes[i * 2]     || null,
-            dinner: recipes[i * 2 + 1] || recipes[i % recipes.length] || null,
-        }));
+        // Build a 7-day plan: assign lunch + dinner without repeating the same recipe
+        // on the same day; if we run out, cycle through from the start
+        const plan = DAYS.map((day, i) => {
+            const lunchIdx  = (i * 2)     % Math.max(recipes.length, 1);
+            const dinnerIdx = (i * 2 + 1) % Math.max(recipes.length, 1);
+
+            const lunch  = recipes.length > 0 ? recipes[lunchIdx]  : null;
+            // Only use dinnerIdx if it's different from lunch (avoid same-meal same-day)
+            const dinner = recipes.length > 1 ? recipes[dinnerIdx] : null;
+
+            return { day, lunch, dinner };
+        });
 
         res.json({ plan, totalRecipes: recipes.length });
     } catch (e) {

@@ -6,9 +6,14 @@ const FavouriteSchema = new mongoose.Schema({
     recipeName:  { type: String, default: '' },
     recipeImage: { type: String, default: '' },
     prepTime:    { type: String, default: '' },
+    cookTime:    { type: String, default: '' },
     totalTime:   { type: String, default: '' },
     servings:    { type: String, default: '' },
     cuisine:     { type: String, default: '' },
+    rating:      { type: Number, default: 0 },
+    nutrition:   { type: String, default: '' },
+    ingredients: [{ type: String }],
+    directions:  { type: String, default: '' },
 }, { timestamps: true });
 
 FavouriteSchema.index({ userId: 1, recipeId: 1 }, { unique: true });

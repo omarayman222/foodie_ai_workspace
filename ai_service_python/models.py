@@ -8,3 +8,4 @@ class PantryRequest(BaseModel):
     medical_conditions: list[str] = [] # NEW
     dislikes: list[str] = []           # NEW
     disliked_cuisines: list[str] = []  # NEW
+    top_n: int = 14

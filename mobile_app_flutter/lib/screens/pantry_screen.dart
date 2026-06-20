@@ -103,8 +103,21 @@ class _PantryScreenState extends State<PantryScreen> {
   }
 
   // Summary badges
-  int get _expiredCount   => _items.where((i) => i.isExpired).length;
+  int get _expiredCount      => _items.where((i) => i.isExpired).length;
   int get _expiringSoonCount => _items.where((i) => i.expiringSoon).length;
+
+  Future<void> _restockExpired() async {
+    final names = _items.where((i) => i.isExpired).map((i) => i.name).toList();
+    if (names.isEmpty) return;
+    final result = await _api.addToShoppingList(names);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(result['success'] == true
+          ? '${names.length} expired item(s) added to shopping list!'
+          : result['message'] ?? 'Failed'),
+      backgroundColor: result['success'] == true ? Colors.green : Colors.redAccent,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +150,11 @@ class _PantryScreenState extends State<PantryScreen> {
 
                   // ── Warning badges ───────────────────────────
                   if (_expiredCount > 0 || _expiringSoonCount > 0)
-                    _WarningBanner(expired: _expiredCount, expiringSoon: _expiringSoonCount),
+                    _WarningBanner(
+                      expired: _expiredCount,
+                      expiringSoon: _expiringSoonCount,
+                      onRestock: _expiredCount > 0 ? _restockExpired : null,
+                    ),
 
                   // ── Header row ───────────────────────────────
                   const SizedBox(height: 16),
@@ -217,30 +234,47 @@ class _AddBox extends StatelessWidget {
 class _WarningBanner extends StatelessWidget {
   final int expired;
   final int expiringSoon;
-  const _WarningBanner({required this.expired, required this.expiringSoon});
+  final VoidCallback? onRestock;
+  const _WarningBanner({required this.expired, required this.expiringSoon, this.onRestock});
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: expired > 0 ? Colors.red.withValues(alpha: 0.08) : Colors.amber.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: expired > 0 ? Colors.red.withValues(alpha: 0.3) : Colors.amber.withValues(alpha: 0.4)),
-    ),
-    child: Row(children: [
-      Icon(expired > 0 ? Icons.warning_amber_rounded : Icons.access_time_rounded,
-          color: expired > 0 ? Colors.redAccent : Colors.amber[700], size: 20),
-      const SizedBox(width: 10),
-      Expanded(child: Text(
-        [
-          if (expired > 0) '$expired item${expired > 1 ? 's' : ''} expired',
-          if (expiringSoon > 0) '$expiringSoon expiring within 3 days',
-        ].join(' · '),
-        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600,
-            color: expired > 0 ? Colors.redAccent : Colors.amber[800]),
-      )),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final isError = expired > 0;
+    final accent = isError ? Colors.redAccent : Colors.amber[700]!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: isError ? Colors.red.withValues(alpha: 0.08) : Colors.amber.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isError ? Colors.red.withValues(alpha: 0.3) : Colors.amber.withValues(alpha: 0.4)),
+      ),
+      child: Row(children: [
+        Icon(isError ? Icons.warning_amber_rounded : Icons.access_time_rounded,
+            color: accent, size: 20),
+        const SizedBox(width: 10),
+        Expanded(child: Text(
+          [
+            if (expired > 0) '$expired item${expired > 1 ? 's' : ''} expired',
+            if (expiringSoon > 0) '$expiringSoon expiring within 3 days',
+          ].join(' · '),
+          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: accent),
+        )),
+        if (onRestock != null) ...[
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onRestock,
+            style: TextButton.styleFrom(
+              foregroundColor: accent,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text('Restock', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ]),
+    );
+  }
 }
 
 // ── Item tile ────────────────────────────────────────────────────────────────

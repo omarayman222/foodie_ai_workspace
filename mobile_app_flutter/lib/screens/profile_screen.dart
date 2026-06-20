@@ -13,6 +13,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ApiService();
+  final _nameCtrl = TextEditingController();
   UserProfile _profile = UserProfile();
   bool _loading = true;
   bool _saving = false;
@@ -24,15 +25,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final result = await _api.getProfile();
     if (!mounted) return;
     if (result['success'] == true) {
       final data = result['data'];
+      final profile = UserProfile.fromJson(data['profile'] ?? {});
+      // top-level name takes precedence if profile.name is empty
+      if (profile.name.isEmpty && (data['name'] as String? ?? '').isNotEmpty) {
+        profile.name = data['name'] as String;
+      }
       setState(() {
-        _profile = UserProfile.fromJson(data['profile'] ?? {});
-        _email = data['email'];
+        _profile = profile;
+        _nameCtrl.text = _profile.name;
+        _email = data['email'] as String?;
         _loading = false;
       });
     } else {
@@ -41,12 +54,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _save() async {
+    _profile.name = _nameCtrl.text.trim();
     setState(() => _saving = true);
     final result = await _api.updateProfile(_profile.toJson());
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(result['success'] == true ? 'Profile saved!' : result['message']),
+      content: Text(result['success'] == true
+          ? 'Profile saved!'
+          : (result['message'] ?? 'Failed to save profile')),
       backgroundColor: result['success'] == true ? Colors.green : Colors.redAccent,
     ));
   }
@@ -98,25 +114,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                if (_email != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)]),
-                    child: Row(children: [
+                // ── Account card ─────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)],
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
                       CircleAvatar(
-                        radius: 28, backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                        radius: 28,
+                        backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                         child: Icon(Icons.person_rounded, color: Theme.of(context).colorScheme.primary, size: 30),
                       ),
                       const SizedBox(width: 16),
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text('Signed in as', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
-                        Text(_email!, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                      ]),
+                        if (_email != null)
+                          Text(_email!, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+                      ])),
                     ]),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _nameCtrl,
+                      style: GoogleFonts.poppins(fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Display Name',
+                        labelStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[500]),
+                        hintText: 'e.g. Mohamed',
+                        hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400]),
+                        prefixIcon: const Icon(Icons.badge_outlined, size: 20),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[200]!),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[200]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 20),
                 _Section(
                   title: 'Allergies',
                   icon: Icons.warning_amber_rounded,

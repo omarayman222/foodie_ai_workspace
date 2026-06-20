@@ -1,4 +1,5 @@
 class UserProfile {
+  String name;
   List<String> allergies;
   List<String> diet;
   List<String> medicalConditions;
@@ -6,16 +7,21 @@ class UserProfile {
   List<String> dislikedCuisines;
 
   UserProfile({
-    this.allergies = const [],
-    this.diet = const [],
-    this.medicalConditions = const [],
-    this.dislikes = const [],
-    this.dislikedCuisines = const [],
-  });
+    this.name = '',
+    List<String>? allergies,
+    List<String>? diet,
+    List<String>? medicalConditions,
+    List<String>? dislikes,
+    List<String>? dislikedCuisines,
+  })  : allergies = allergies ?? [],
+        diet = diet ?? [],
+        medicalConditions = medicalConditions ?? [],
+        dislikes = dislikes ?? [],
+        dislikedCuisines = dislikedCuisines ?? [];
 
-  // Translator: JSON (from Node.js) -> Dart
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
+      name: json['name'] as String? ?? '',
       allergies: List<String>.from(json['allergies'] ?? []),
       diet: List<String>.from(json['diet'] ?? []),
       medicalConditions: List<String>.from(json['medicalConditions'] ?? []),
@@ -24,14 +30,12 @@ class UserProfile {
     );
   }
 
-  // Translator: Dart -> JSON (To send to Node.js)
-  Map<String, dynamic> toJson() {
-    return {
-      'allergies': allergies,
-      'diet': diet,
-      'medicalConditions': medicalConditions,
-      'dislikes': dislikes,
-      'dislikedCuisines': dislikedCuisines,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'allergies': allergies,
+        'diet': diet,
+        'medicalConditions': medicalConditions,
+        'dislikes': dislikes,
+        'dislikedCuisines': dislikedCuisines,
+      };
 }

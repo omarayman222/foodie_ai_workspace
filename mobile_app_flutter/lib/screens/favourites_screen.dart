@@ -27,17 +27,20 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     if (result['success'] == true) {
       final list = result['data']['favourites'] as List? ?? [];
       setState(() {
-        _recipes = list.map((f) => Recipe(
-          id: f['recipeId'] ?? '',
-          title: f['recipeName'] ?? '',
-          imageUrl: f['recipeImage'] ?? '',
-          ingredients: [],
-          instructions: [],
-          prepTime: f['prepTime'] ?? '',
-          totalTime: f['totalTime'] ?? '',
-          servings: f['servings'] ?? '',
-          cuisine: f['cuisine'] ?? '',
-        )).toList();
+        _recipes = list.map((f) => Recipe.fromJson({
+          '_id':         f['recipeId']  ?? '',
+          'recipe_name': f['recipeName']  ?? '',
+          'img_src':     f['recipeImage'] ?? '',
+          'ingredients': f['ingredients'] ?? [],
+          'directions':  f['directions']  ?? '',
+          'prep_time':   f['prepTime']    ?? '',
+          'cook_time':   f['cookTime']    ?? '',
+          'total_time':  f['totalTime']   ?? '',
+          'servings':    f['servings']    ?? '',
+          'cuisine_path':f['cuisine']     ?? '',
+          'rating':      f['rating']      ?? 0,
+          'nutrition':   f['nutrition']   ?? '',
+        })).toList();
         _loading = false;
       });
     } else {

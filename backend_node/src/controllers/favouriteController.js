@@ -11,16 +11,37 @@ exports.getFavourites = async (req, res) => {
 
 exports.addFavourite = async (req, res) => {
     try {
-        const { recipeId, recipeName, recipeImage, prepTime, totalTime, servings, cuisine } = req.body;
+        const {
+            recipeId, recipeName, recipeImage,
+            prepTime, cookTime, totalTime,
+            servings, cuisine, rating, nutrition,
+            ingredients, directions,
+        } = req.body;
+
         if (!recipeId) return res.status(400).json({ error: 'recipeId is required' });
 
         const fav = await Favourite.findOneAndUpdate(
             { userId: req.user.userId, recipeId },
-            { userId: req.user.userId, recipeId, recipeName, recipeImage, prepTime, totalTime, servings, cuisine },
+            {
+                userId: req.user.userId,
+                recipeId,
+                recipeName:  recipeName  || '',
+                recipeImage: recipeImage || '',
+                prepTime:    prepTime    || '',
+                cookTime:    cookTime    || '',
+                totalTime:   totalTime   || '',
+                servings:    servings != null ? String(servings) : '',
+                cuisine:     cuisine     || '',
+                rating:      rating      || 0,
+                nutrition:   nutrition   || '',
+                ingredients: Array.isArray(ingredients) ? ingredients : [],
+                directions:  directions  || '',
+            },
             { upsert: true, new: true }
         );
         res.json({ success: true, favourite: fav });
     } catch (e) {
+        console.error('addFavourite error:', e);
         res.status(500).json({ error: 'Failed to add favourite' });
     }
 };

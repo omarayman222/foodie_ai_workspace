@@ -1,46 +1,59 @@
 const User = require('../models/User');
 
-exports.updateProfile = async (req, res) => {
+exports.getProfile = async (req, res) => {
     try {
-        const userId = req.user.userId;
-        const { allergies, diet, medicalConditions, dislikes, dislikedCuisines } = req.body;
+        const user = await User.findById(req.user.userId);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
 
-        // 1. Find the user in the database
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ error: "User not found." });
-        }
-
-        // 2. Update their allergies
-        if (allergies && Array.isArray(allergies)) {
-            user.profile.allergies = allergies;
-        }
-
-        // 3. Update their diet preferences
-        if (diet && Array.isArray(diet)) {
-            user.profile.diet = diet;
-        }
-
-        if (medicalConditions && Array.isArray(medicalConditions)){
-             user.profile.medicalConditions = medicalConditions;
-        }
-
-        if (dislikes && Array.isArray(dislikes)){
-             user.profile.dislikes = dislikes;
-        }
-        if (dislikedCuisines && Array.isArray(dislikedCuisines)) {
-            user.profile.dislikedCuisines = dislikedCuisines;
-        }
-
-        // 4. Save the updated user
-        await user.save();
-
-        res.status(200).json({ 
-            message: "Profile updated successfully!", 
-            profile: user.profile 
+        res.status(200).json({
+            email: user.email,
+            name: user.profile.name || user.name || '',
+            profile: {
+                name:              user.profile.name              ?? '',
+                allergies:         user.profile.allergies         ?? [],
+                diet:              user.profile.diet              ?? [],
+                medicalConditions: user.profile.medicalConditions ?? [],
+                dislikes:          user.profile.dislikes          ?? [],
+                dislikedCuisines:  user.profile.dislikedCuisines  ?? [],
+            },
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to update profile." });
+        res.status(500).json({ error: 'Failed to fetch profile.' });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.userId);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+
+        const { name, allergies, diet, medicalConditions, dislikes, dislikedCuisines } = req.body;
+
+        if (name !== undefined) {
+            user.profile.name = String(name).trim();
+            user.name = user.profile.name;
+        }
+        if (Array.isArray(allergies))         user.profile.allergies         = allergies;
+        if (Array.isArray(diet))              user.profile.diet              = diet;
+        if (Array.isArray(medicalConditions)) user.profile.medicalConditions = medicalConditions;
+        if (Array.isArray(dislikes))          user.profile.dislikes          = dislikes;
+        if (Array.isArray(dislikedCuisines))  user.profile.dislikedCuisines  = dislikedCuisines;
+
+        await user.save();
+
+        res.status(200).json({
+            message: 'Profile updated successfully!',
+            profile: {
+                name:              user.profile.name,
+                allergies:         user.profile.allergies,
+                diet:              user.profile.diet,
+                medicalConditions: user.profile.medicalConditions,
+                dislikes:          user.profile.dislikes,
+                dislikedCuisines:  user.profile.dislikedCuisines,
+            },
+        });
+    } catch (error) {
+        console.error('updateProfile error:', error);
+        res.status(500).json({ error: 'Failed to update profile.' });
     }
 };

@@ -123,12 +123,30 @@ class ApiService {
     } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 
-  Future<Map<String, dynamic>> generateShoppingList(String recipeId) async {
+  Future<Map<String, dynamic>> generateShoppingList(String recipeId, {List<String> ingredients = const []}) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.post(Uri.parse('${ApiConstants.baseUrl}/shopping-list/generate'), headers: headers, body: jsonEncode({'recipeId': recipeId}));
+      final body = <String, dynamic>{'recipeId': recipeId};
+      if (ingredients.isNotEmpty) body['ingredients'] = ingredients;
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/shopping-list/generate'),
+        headers: headers,
+        body: jsonEncode(body),
+      );
       if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
       return {'success': false, 'message': 'Failed to generate list'};
+    } catch (_) { return {'success': false, 'message': 'Network error'}; }
+  }
+
+  Future<Map<String, dynamic>> toggleShoppingListItem(String itemId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.patch(
+        Uri.parse('${ApiConstants.baseUrl}/shopping-list/check/$itemId'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) return {'success': true, 'data': jsonDecode(response.body)};
+      return {'success': false, 'message': 'Failed to toggle item'};
     } catch (_) { return {'success': false, 'message': 'Network error'}; }
   }
 

@@ -1,14 +1,16 @@
 const mongoose = require('mongoose');
 
 const UserSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true },
+    name:     { type: String, default: '' },
+    email:    { type: String, required: true, unique: true },
     password: { type: String, required: true },
     profile: {
-        allergies: [{ type: String }],
-        diet: [{ type: String }],
-        medicalConditions: [{ type: String }], // NEW
-        dislikes: [{ type: String }],          // NEW
-        dislikedCuisines: [{ type: String }]   // NEW
+        name:              { type: String, default: '' },
+        allergies:         [{ type: String }],
+        diet:              [{ type: String }],
+        medicalConditions: [{ type: String }],
+        dislikes:          [{ type: String }],
+        dislikedCuisines:  [{ type: String }],
     }
 }, { timestamps: true });
 
