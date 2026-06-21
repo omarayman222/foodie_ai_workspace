@@ -6,8 +6,10 @@ const User = require('../models/User');
 exports.getRecommendations = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const userPantry = await Pantry.findOne({ userId });
-        const user = await User.findById(userId);
+        const [userPantry, user] = await Promise.all([
+            Pantry.findOne({ userId }),
+            User.findById(userId),
+        ]);
 
         const ingredients = userPantry
             ? userPantry.items && userPantry.items.length > 0
@@ -15,25 +17,50 @@ exports.getRecommendations = async (req, res) => {
                 : (userPantry.ingredients || [])
             : [];
 
-        if (ingredients.length === 0) {
-            return res.status(400).json({ message: 'Your pantry is empty! Add some ingredients first.' });
+        // Try Python service if pantry has items
+        if (ingredients.length > 0) {
+            try {
+                const pythonResponse = await axios.post('http://localhost:8000/recommend', {
+                    user_id: userId,
+                    ingredients,
+                    allergies: user.profile.allergies || [],
+                    diets: user.profile.diet || [],
+                    medical_conditions: user.profile.medicalConditions || [],
+                    dislikes: user.profile.dislikes || [],
+                    disliked_cuisines: user.profile.dislikedCuisines || [],
+                }, { timeout: 10000 });
+                return res.status(200).json(pythonResponse.data);
+            } catch (_) {
+                // Python offline — fall through to MongoDB fallback
+            }
         }
 
-        const pythonResponse = await axios.post('http://localhost:8000/recommend', {
-            user_id: userId,
-            ingredients,
-            allergies: user.profile.allergies || [],
-            diets: user.profile.diet || [],
-            medical_conditions: user.profile.medicalConditions || [],
-            dislikes: user.profile.dislikes || [],
-            disliked_cuisines: user.profile.dislikedCuisines || [],
-        }, { timeout: 10000 });
+        // MongoDB fallback: search by first pantry ingredient or return popular recipes
+        const filter = {};
+        if (ingredients.length > 0) {
+            filter.$or = [
+                { recipe_name: { $regex: ingredients[0], $options: 'i' } },
+                { ingredients: { $regex: ingredients[0], $options: 'i' } },
+            ];
+        }
+        const dislikedCuisines = user?.profile?.dislikedCuisines || [];
+        if (dislikedCuisines.length > 0) {
+            filter.cuisine_path = { $not: new RegExp(dislikedCuisines.join('|'), 'i') };
+        }
 
-        res.status(200).json(pythonResponse.data);
+        const mongoRecipes = await Recipe.find(filter).limit(10)
+            .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+
+        const fallback = mongoRecipes.length > 0
+            ? mongoRecipes
+            : await Recipe.find({}).limit(10)
+                .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+
+        const formatted = fallback.map(r => { const obj = r.toObject(); return { ...obj, _id: obj._id.toString() }; });
+        res.status(200).json({ top_recipes: formatted });
     } catch (error) {
         console.error('Error getting recommendations:', error.message);
-        const isOffline = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED';
-        res.status(isOffline ? 503 : 500).json({ error: 'Recommendation service is currently offline.' });
+        res.status(500).json({ error: 'Failed to fetch recommendations.' });
     }
 };
 

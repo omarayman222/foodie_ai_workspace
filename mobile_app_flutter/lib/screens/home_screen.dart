@@ -14,6 +14,7 @@ import 'profile_screen.dart';
 import 'favourites_screen.dart';
 import 'meal_plan_screen.dart';
 import 'recipe_detail_screen.dart';
+import 'recipe_filter_screen.dart';
 
 // ── Palette ────────────────────────────────────────────────────────────────
 class _C {
@@ -218,6 +219,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _Feature(Icons.calendar_month_rounded, '📅', 'Meal Plan',
           'AI-generated 7-day plan based on your pantry.',
           const Color(0xFF2060B0), const MealPlanScreen()),
+      _Feature(Icons.tune_rounded, '🔍', 'Filter Recipes',
+          'Browse and filter recipes by cuisine, diet, and category.',
+          const Color(0xFFD4622A), const RecipeFilterScreen()),
     ];
 
     return Scaffold(

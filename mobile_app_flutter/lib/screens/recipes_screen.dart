@@ -16,17 +16,38 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
   final _api = ApiService();
   final _searchCtrl = TextEditingController();
 
-  List<Recipe> _aiRecipes   = [];
+  List<Recipe> _aiRecipes     = [];
   List<Recipe> _searchResults = [];
-  bool _loading     = true;
-  bool _searching   = false;
+  bool _loading   = true;
+  bool _searching = false;
   String? _error;
-  bool _showSearch  = false;
+  bool _showSearch = false;
 
   late TabController _tabCtrl;
 
-  static const _cuisines = ['Any', 'Italian', 'Asian', 'Mexican', 'Indian', 'American', 'Mediterranean'];
+  // Cuisine — single select
+  static const _cuisines = ['Any', 'Egyptian', 'Italian', 'Mexican', 'Japanese', 'Indian', 'American', 'Mediterranean', 'Chinese', 'French', 'Thai'];
   String _selectedCuisine = 'Any';
+
+  // Category — multi select
+  static const _categories = ['Healthy', 'Sweet', 'Sour', 'Spicy', 'Side Item', 'Quick Cook', 'Comfort Food', 'Vegetarian'];
+  final Set<String> _selectedCategories = {};
+
+  static const _categoryColors = {
+    'Healthy':      Color(0xFF3D9A40),
+    'Sweet':        Color(0xFFD44D8C),
+    'Sour':         Color(0xFFBBA000),
+    'Spicy':        Color(0xFFD4421E),
+    'Side Item':    Color(0xFF8D6E63),
+    'Quick Cook':   Color(0xFFE07B00),
+    'Comfort Food': Color(0xFFB85C00),
+    'Vegetarian':   Color(0xFF2E7D32),
+  };
+
+  static const _categoryEmoji = {
+    'Healthy': '🥗', 'Sweet': '🍰', 'Sour': '🍋', 'Spicy': '🌶️',
+    'Side Item': '🍞', 'Quick Cook': '⚡', 'Comfort Food': '🍲', 'Vegetarian': '🥦',
+  };
 
   static const _foodImages = [
     'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&q=80',
@@ -38,6 +59,11 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
     'https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=600&q=80',
     'https://images.unsplash.com/photo-1482049016688-2d3e1b311543?w=600&q=80',
   ];
+
+  bool get _noFilters =>
+      _searchCtrl.text.trim().isEmpty &&
+      _selectedCuisine == 'Any' &&
+      _selectedCategories.isEmpty;
 
   @override
   void initState() {
@@ -58,8 +84,8 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
     final result = await _api.getRecommendations();
     if (!mounted) return;
     if (result['success'] == true) {
-      final data  = result['data'];
-      final list  = data['recipes'] ?? data['top_recipes'] ?? [];
+      final data = result['data'];
+      final list = data['recipes'] ?? data['top_recipes'] ?? [];
       setState(() {
         _aiRecipes = (list as List).map((r) => Recipe.fromJson(r)).toList();
         _loading   = false;
@@ -71,12 +97,16 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
 
   Future<void> _search(String q) async {
     final cuisine = _selectedCuisine == 'Any' ? '' : _selectedCuisine;
-    if (q.trim().isEmpty && cuisine.isEmpty) {
+    // Combine text query + selected category names as keywords
+    final catKeywords = _selectedCategories.join(' ');
+    final combined = [q.trim(), catKeywords].where((s) => s.isNotEmpty).join(' ');
+
+    if (combined.isEmpty && cuisine.isEmpty) {
       setState(() => _searchResults = []);
       return;
     }
     setState(() => _searching = true);
-    final result = await _api.searchRecipes(q: q.trim(), cuisine: cuisine);
+    final result = await _api.searchRecipes(q: combined, cuisine: cuisine);
     if (!mounted) return;
     if (result['success'] == true) {
       final list = result['data']['recipes'] as List? ?? [];
@@ -84,6 +114,26 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
     } else {
       setState(() => _searching = false);
     }
+  }
+
+  void _toggleCategory(String cat) {
+    setState(() {
+      if (_selectedCategories.contains(cat)) {
+        _selectedCategories.remove(cat);
+      } else {
+        _selectedCategories.add(cat);
+      }
+    });
+    _search(_searchCtrl.text);
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedCuisine = 'Any';
+      _selectedCategories.clear();
+      _searchCtrl.clear();
+      _searchResults.clear();
+    });
   }
 
   @override
@@ -103,7 +153,10 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
                 icon: Icon(_showSearch ? Icons.close_rounded : Icons.search_rounded, color: Colors.white),
                 onPressed: () => setState(() {
                   _showSearch = !_showSearch;
-                  if (!_showSearch) { _searchCtrl.clear(); _searchResults.clear(); }
+                  if (!_showSearch) {
+                    _searchCtrl.clear();
+                    _searchResults.clear();
+                  }
                 }),
               ),
               IconButton(icon: const Icon(Icons.refresh_rounded, color: Colors.white), onPressed: _load),
@@ -154,7 +207,8 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            // ── Tab 1: AI Picks ──────────────────────────────
+
+            // ── Tab 1: AI Picks ──────────────────────────────────
             _loading
                 ? _SkeletonList()
                 : _error != null
@@ -179,22 +233,16 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
                                   recipe: recipe,
                                   onFavourite: () async {
                                     await _api.addFavourite({
-                                      'recipeId': recipe.id,
-                                      'recipeName': recipe.title,
-                                      'recipeImage': recipe.imageUrl,
-                                      'prepTime': recipe.prepTime,
-                                      'totalTime': recipe.totalTime,
-                                      'servings': recipe.servings,
+                                      'recipeId': recipe.id, 'recipeName': recipe.title,
+                                      'recipeImage': recipe.imageUrl, 'prepTime': recipe.prepTime,
+                                      'totalTime': recipe.totalTime, 'servings': recipe.servings,
                                       'cuisine': recipe.cuisine,
                                     });
                                     if (!ctx.mounted) return;
                                     ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
                                       content: Row(children: [
                                         const Text('❤️  '),
-                                        Expanded(child: Text(
-                                          'Saved "${recipe.title}"',
-                                          overflow: TextOverflow.ellipsis,
-                                        )),
+                                        Expanded(child: Text('Saved "${recipe.title}"', overflow: TextOverflow.ellipsis)),
                                       ]),
                                       backgroundColor: Colors.redAccent,
                                       behavior: SnackBarBehavior.floating,
@@ -209,8 +257,7 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
                                       behavior: SnackBarBehavior.floating,
                                       duration: const Duration(seconds: 2),
                                       action: SnackBarAction(
-                                        label: 'Undo',
-                                        textColor: Colors.white,
+                                        label: 'Undo', textColor: Colors.white,
                                         onPressed: () => setState(() => _aiRecipes.insert(i, recipe)),
                                       ),
                                     ));
@@ -220,19 +267,20 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
                                     fallbackImage: _foodImages[i % _foodImages.length],
                                     badge: '#${i + 1} Pick',
                                     badgeColor: badgeColor,
-                                    onTap: () => Navigator.push(ctx,
-                                        MaterialPageRoute(builder: (_) => RecipeDetailScreen(recipe: recipe))),
+                                    onTap: () => Navigator.push(ctx, MaterialPageRoute(
+                                        builder: (_) => RecipeDetailScreen(recipe: recipe))),
                                   ),
                                 );
                               },
                             ),
                           ),
 
-            // ── Tab 2: Search ────────────────────────────────
+            // ── Tab 2: Search ─────────────────────────────────────
             Column(children: [
-              // Cuisine filter chips
+
+              // ── Cuisine chips ──────────────────────────────
               SizedBox(
-                height: 48,
+                height: 44,
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                   scrollDirection: Axis.horizontal,
@@ -251,28 +299,142 @@ class _RecipesScreenState extends State<RecipesScreen> with SingleTickerProvider
                   )).toList(),
                 ),
               ),
-              Expanded(
-                child: _searching
-                    ? _SkeletonList()
-                    : _searchResults.isEmpty
-                        ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            const Icon(Icons.search_rounded, size: 64, color: Colors.grey),
-                            const SizedBox(height: 12),
-                            Text(_searchCtrl.text.isEmpty && _selectedCuisine == 'Any'
-                                    ? 'Type to search recipes'
-                                    : 'No results found',
-                                style: GoogleFonts.poppins(color: Colors.grey[500])),
-                          ]))
-                        : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                            itemCount: _searchResults.length,
-                            itemBuilder: (ctx, i) => _RecipeCard(
-                              recipe: _searchResults[i],
-                              fallbackImage: _foodImages[i % _foodImages.length],
-                              onTap: () => Navigator.push(ctx,
-                                  MaterialPageRoute(builder: (_) => RecipeDetailScreen(recipe: _searchResults[i]))),
+
+              // ── Category chips ─────────────────────────────
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  scrollDirection: Axis.horizontal,
+                  children: _categories.map((cat) {
+                    final selected = _selectedCategories.contains(cat);
+                    final color = _categoryColors[cat] ?? Colors.grey;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => _toggleCategory(cat),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOut,
+                          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: selected ? color : Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: selected ? color : Colors.grey[300]!,
+                              width: 1.2,
                             ),
+                            boxShadow: selected
+                                ? [BoxShadow(color: color.withValues(alpha: 0.28), blurRadius: 6, offset: const Offset(0, 2))]
+                                : [],
                           ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(_categoryEmoji[cat] ?? '', style: const TextStyle(fontSize: 12)),
+                              const SizedBox(width: 5),
+                              Text(
+                                cat,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                                  color: selected ? Colors.white : Colors.grey[700],
+                                ),
+                              ),
+                              if (selected) ...[
+                                const SizedBox(width: 4),
+                                const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+
+              // ── Active filters summary + clear ─────────────
+              if (!_noFilters)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                  child: Row(children: [
+                    Icon(Icons.filter_list_rounded, size: 13, color: Colors.grey[500]),
+                    const SizedBox(width: 5),
+                    Expanded(child: Text(
+                      [
+                        if (_selectedCuisine != 'Any') _selectedCuisine,
+                        ..._selectedCategories,
+                      ].join(' · '),
+                      style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[500]),
+                      overflow: TextOverflow.ellipsis,
+                    )),
+                    GestureDetector(
+                      onTap: _clearFilters,
+                      child: Text('Clear', style: GoogleFonts.poppins(fontSize: 11, color: cs.primary, fontWeight: FontWeight.w600)),
+                    ),
+                  ]),
+                ),
+
+              // ── Results or recommendations ─────────────────
+              Expanded(
+                child: _noFilters
+                    // No search text + no filters → show AI recommendations
+                    ? _loading
+                        ? _SkeletonList()
+                        : _aiRecipes.isEmpty
+                            ? _EmptyView()
+                            : Column(children: [
+                                Container(
+                                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                                  alignment: Alignment.centerLeft,
+                                  child: Row(children: [
+                                    const Icon(Icons.auto_awesome_rounded, size: 13, color: Color(0xFFFF9800)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'AI Recommendations — search or filter to explore',
+                                      style: GoogleFonts.poppins(fontSize: 11.5, color: Colors.grey[600]),
+                                    ),
+                                  ]),
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                                    itemCount: _aiRecipes.length,
+                                    itemBuilder: (ctx, i) => _RecipeCard(
+                                      recipe: _aiRecipes[i],
+                                      fallbackImage: _foodImages[i % _foodImages.length],
+                                      badge: 'AI Pick',
+                                      badgeColor: const Color(0xFFFF6B00),
+                                      onTap: () => Navigator.push(ctx, MaterialPageRoute(
+                                          builder: (_) => RecipeDetailScreen(recipe: _aiRecipes[i]))),
+                                    ),
+                                  ),
+                                ),
+                              ])
+                    // Search / filter active → show results
+                    : _searching
+                        ? _SkeletonList()
+                        : _searchResults.isEmpty
+                            ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                const Icon(Icons.search_off_rounded, size: 64, color: Colors.grey),
+                                const SizedBox(height: 12),
+                                Text('No recipes found',
+                                    style: GoogleFonts.poppins(color: Colors.grey[600], fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                Text('Try different keywords or fewer filters',
+                                    style: GoogleFonts.poppins(color: Colors.grey[400], fontSize: 12)),
+                              ]))
+                            : ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                                itemCount: _searchResults.length,
+                                itemBuilder: (ctx, i) => _RecipeCard(
+                                  recipe: _searchResults[i],
+                                  fallbackImage: _foodImages[i % _foodImages.length],
+                                  onTap: () => Navigator.push(ctx, MaterialPageRoute(
+                                      builder: (_) => RecipeDetailScreen(recipe: _searchResults[i]))),
+                                ),
+                              ),
               ),
             ]),
           ],
@@ -300,7 +462,7 @@ class _SkeletonList extends StatelessWidget {
   );
 }
 
-// ── Swipeable wrapper ─────────────────────────────────────────────────────
+// ── Swipeable wrapper ──────────────────────────────────────────────────────
 class _SwipeableCard extends StatelessWidget {
   final Recipe recipe;
   final Widget child;
@@ -319,47 +481,30 @@ class _SwipeableCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dismissible(
       key: key!,
-      // Right → favourite (snap back, don't remove)
-      // Left  → skip (remove from list)
       confirmDismiss: (direction) async {
-        if (direction == DismissDirection.startToEnd) {
-          onFavourite();
-          return false; // keep the card in the list
-        } else {
-          onSkip();
-          return true; // remove the card
-        }
+        if (direction == DismissDirection.startToEnd) { onFavourite(); return false; }
+        onSkip(); return true;
       },
-      // Green background revealed on right-swipe
       background: Container(
         margin: const EdgeInsets.only(bottom: 18),
-        decoration: BoxDecoration(
-          color: Colors.green[400],
-          borderRadius: BorderRadius.circular(24),
-        ),
+        decoration: BoxDecoration(color: Colors.green[400], borderRadius: BorderRadius.circular(24)),
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.favorite_rounded, color: Colors.white, size: 32),
           const SizedBox(height: 4),
-          Text('Save', style: GoogleFonts.poppins(
-              color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+          Text('Save', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
         ]),
       ),
-      // Red background revealed on left-swipe
       secondaryBackground: Container(
         margin: const EdgeInsets.only(bottom: 18),
-        decoration: BoxDecoration(
-          color: Colors.red[400],
-          borderRadius: BorderRadius.circular(24),
-        ),
+        decoration: BoxDecoration(color: Colors.red[400], borderRadius: BorderRadius.circular(24)),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.skip_next_rounded, color: Colors.white, size: 32),
           const SizedBox(height: 4),
-          Text('Skip', style: GoogleFonts.poppins(
-              color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+          Text('Skip', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
         ]),
       ),
       child: child,
@@ -404,17 +549,14 @@ class _RecipeCard extends StatelessWidget {
                   errorBuilder: (_, __, ___) => Image.network(fallbackImage, height: 200, width: double.infinity, fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(height: 200, color: color.withValues(alpha: 0.2),
                           child: Center(child: Icon(Icons.restaurant_rounded, size: 60, color: color))))),
-              // Gradient overlay
               Positioned(bottom: 0, left: 0, right: 0, child: Container(height: 100,
                   decoration: const BoxDecoration(gradient: LinearGradient(
                     begin: Alignment.topCenter, end: Alignment.bottomCenter,
                     colors: [Colors.transparent, Color(0xEE000000)])))),
-              // Badge
               if (badge != null) Positioned(top: 12, left: 12, child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)),
                 child: Text(badge!, style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)))),
-              // Title
               Positioned(bottom: 12, left: 14, right: 14, child: Text(recipe.title,
                   style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, height: 1.2),
                   maxLines: 2, overflow: TextOverflow.ellipsis)),

@@ -2,156 +2,254 @@ const Groq = require('groq-sdk');
 const axios = require('axios');
 const User = require('../models/User');
 const Pantry = require('../models/Pantry');
+const Recipe = require('../models/Recipe');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// ── Simple TTL in-memory cache ─────────────────────────────────────────────
+// Stores: key → { reply, type, recipes, expiresAt }
+// Key is built from (userId + normalised message) so it's per-user.
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const _cache = new Map();
+
+function cacheGet(key) {
+    const entry = _cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) { _cache.delete(key); return null; }
+    return entry.value;
+}
+
+function cacheSet(key, value) {
+    if (_cache.size > 500) {
+        // Evict oldest entry to prevent unbounded growth
+        _cache.delete(_cache.keys().next().value);
+    }
+    _cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// ── Helper: safe Groq call with timeout ───────────────────────────────────
+async function groqChat(messages, { model, temperature = 0.5, max_tokens = 512, json = false } = {}) {
+    const opts = {
+        messages,
+        model,
+        temperature,
+        max_tokens,
+    };
+    if (json) opts.response_format = { type: 'json_object' };
+    return groq.chat.completions.create(opts, { timeout: 15_000 });
+}
+
 exports.processChat = async (req, res) => {
+    const t0 = Date.now();
     try {
         const userId = req.user.userId;
         const { message, currentRecipeId } = req.body;
 
         if (!message) {
-            return res.status(400).json({ error: "Message is required." });
+            return res.status(400).json({ error: 'Message is required.' });
         }
 
-        // Load user and pantry in parallel
-        const [user, pantry] = await Promise.all([
-            User.findById(userId),
-            Pantry.findOne({ userId }),
+        // ── Cache lookup (skip for searches with recipe context) ──────────
+        const cacheKey = `${userId}:${message.toLowerCase().trim()}`;
+        if (!currentRecipeId) {
+            const cached = cacheGet(cacheKey);
+            if (cached) {
+                console.log(`[chat] cache HIT  (${Date.now() - t0}ms)`);
+                return res.status(200).json(cached);
+            }
+        }
+
+        // ── STEP 1: DB load + intent classification IN PARALLEL ───────────
+        const classifierPrompt = `Classify the user message into exactly ONE of these categories.
+Output ONLY the category name in ALL CAPS, nothing else.
+
+SEARCH   – user wants to find or discover recipes/meals
+COOKING  – user needs cooking help, technique advice, substitutions, or step-by-step guidance
+GENERAL  – user asks about nutrition, calories, diets, food facts, or health
+
+Message: "${message}"`;
+
+        const [dbResults, intentResponse] = await Promise.all([
+            Promise.all([
+                User.findById(userId),
+                Pantry.findOne({ userId }),
+                currentRecipeId ? Recipe.findById(currentRecipeId).catch(() => null) : Promise.resolve(null),
+            ]),
+            groqChat(
+                [{ role: 'system', content: classifierPrompt }],
+                { model: 'llama-3.1-8b-instant', temperature: 0.0, max_tokens: 10 }
+            ),
         ]);
 
-        if (!user) return res.status(404).json({ error: "User not found." });
+        const [user, pantry, currentRecipe] = dbResults;
 
-        // Build pantry context string (non-expired items only)
-        const now = new Date();
-        const pantryItems = (pantry?.items || []).filter(i => !i.expiryDate || new Date(i.expiryDate) >= now);
-        const pantryNames = pantryItems.map(i => i.name);
-        const pantryContext = pantryNames.length > 0
-            ? `The user currently has these ingredients in their pantry: ${pantryNames.join(', ')}.`
-            : 'The user has no pantry items saved.';
-
-        console.log(`🤖 Received: "${message}" | Pantry: [${pantryNames.join(', ')}]`);
-
-        // ── STEP 1: INTENT CLASSIFICATION ─────────────────────
-        const classifierPrompt = `
-            Analyze the user's message: "${message}".
-            Classify their intent into exactly ONE category. Output ONLY the category name in all caps:
-            1. SEARCH (They want to find, discover, or look up new recipes/meals)
-            2. COOKING (They need help cooking, substituting ingredients, or asking about a specific recipe)
-            3. GENERAL (They are asking about calories, nutrition, diets, or general food facts)
-        `;
-
-        const intentResponse = await groq.chat.completions.create({
-            messages: [{ role: 'system', content: classifierPrompt }],
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.1,
-        });
+        if (!user) return res.status(404).json({ error: 'User not found.' });
 
         const intent = intentResponse.choices[0].message.content.trim().toUpperCase();
-        console.log(`🚦 Intent: ${intent}`);
+        console.log(`[chat] intent:${intent}  classify:${Date.now() - t0}ms`);
 
-        // ── STEP 2: ROUTE ──────────────────────────────────────
+        // ── Build context strings ─────────────────────────────────────────
+        const now = new Date();
+        const pantryNames = (pantry?.items || [])
+            .filter(i => !i.expiryDate || new Date(i.expiryDate) >= now)
+            .map(i => i.name);
+
+        const pantryContext = pantryNames.length > 0
+            ? `The user has these ingredients in their pantry: ${pantryNames.join(', ')}.`
+            : 'The user has no pantry items saved.';
+
+        const profileContext = `- Allergies: ${(user.profile.allergies || []).join(', ') || 'none'}
+- Diet: ${(user.profile.diet || []).join(', ') || 'none'}
+- Medical conditions: ${(user.profile.medicalConditions || []).join(', ') || 'none'}
+- Dislikes: ${(user.profile.dislikes || []).join(', ') || 'none'}`;
+
+        // ── STEP 2: ROUTE ─────────────────────────────────────────────────
         let finalReply = '';
         let finalRecipes = [];
 
+        // ── A: SEARCH ─────────────────────────────────────────────────────
         if (intent.includes('SEARCH')) {
-            // --- ROUTE A: SEARCH & DISCOVERY ---
 
-            // Extract explicit wants/unwants from the message
-            const extractPrompt = `
-                Extract data from: "${message}".
-                Respond ONLY with valid JSON: {"wanted": ["item1"], "unwanted": ["item1"]}
-            `;
-            const extractRes = await groq.chat.completions.create({
-                messages: [{ role: 'system', content: extractPrompt }],
-                model: 'llama-3.1-8b-instant',
-                temperature: 0.1,
-            });
+            const extractPrompt = `Extract from: "${message}".
+Respond ONLY with valid JSON, no extra text: {"wanted": ["ingredient or dish"], "unwanted": ["item"]}`;
+
+            // Run LLM extraction and a broad DB fallback search in parallel
+            const broadKeyword = message.split(' ').find(w => w.length > 3) || '';
+            const [extractRes, broadResults] = await Promise.all([
+                groqChat(
+                    [{ role: 'system', content: extractPrompt }],
+                    { model: 'llama-3.1-8b-instant', temperature: 0.0, max_tokens: 80, json: true }
+                ),
+                broadKeyword
+                    ? Recipe.find({
+                        $or: [
+                            { recipe_name:  { $regex: broadKeyword, $options: 'i' } },
+                            { ingredients:  { $regex: broadKeyword, $options: 'i' } },
+                        ],
+                    }).limit(10).select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions').lean()
+                    : Promise.resolve([]),
+            ]);
 
             let searchData = { wanted: [], unwanted: [] };
             try { searchData = JSON.parse(extractRes.choices[0].message.content); } catch (_) {}
 
-            // Merge pantry items into the wanted ingredients list (deduped)
             const wantedSet = new Set([...(searchData.wanted || []), ...pantryNames]);
             const mergedWanted = [...wantedSet];
 
-            const pythonPayload = {
-                user_id: userId.toString(),
-                ingredients: mergedWanted,
-                allergies: user.profile.allergies || [],
-                diets: user.profile.diet || [],
-                medical_conditions: user.profile.medicalConditions || [],
-                dislikes: [...(user.profile.dislikes || []), ...(searchData.unwanted || [])],
-                disliked_cuisines: user.profile.dislikedCuisines || [],
-            };
-
+            // Try Python AI service first
             try {
-                const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 10000 });
-                finalRecipes = pythonResponse.data.top_recipes || pythonResponse.data;
-            } catch (pyErr) {
-                console.error('Python service unavailable for chat SEARCH:', pyErr.message);
-                finalRecipes = [];
+                const pythonPayload = {
+                    user_id: userId.toString(),
+                    ingredients: mergedWanted,
+                    allergies: user.profile.allergies || [],
+                    diets: user.profile.diet || [],
+                    medical_conditions: user.profile.medicalConditions || [],
+                    dislikes: [...(user.profile.dislikes || []), ...(searchData.unwanted || [])],
+                    disliked_cuisines: user.profile.dislikedCuisines || [],
+                };
+                const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 8_000 });
+                finalRecipes = pythonResponse.data.top_recipes || pythonResponse.data || [];
+            } catch (_) {
+                // Python offline — use the broad results we already fetched
             }
 
-            finalReply = pantryNames.length > 0
-                ? `I found recipes that use what you already have in your pantry (${pantryNames.slice(0, 3).join(', ')}${pantryNames.length > 3 ? '…' : ''}), filtered for your profile. Check them out below!`
-                : `I found some great options for you, filtered for your allergies and preferences. Check out the recipe cards below!`;
+            // Fall back to the broad results if Python didn't respond
+            if (!Array.isArray(finalRecipes) || finalRecipes.length === 0) {
+                const keywords = [...(searchData.wanted || []), ...pantryNames]
+                    .map(k => k.trim())
+                    .filter(k => k.length > 2);
 
+                const primaryKeyword = keywords[0] || broadKeyword;
+
+                if (primaryKeyword && primaryKeyword !== broadKeyword) {
+                    // Refine with the extracted keyword if it differs from the broad one
+                    const refined = await Recipe.find({
+                        $or: [
+                            { recipe_name:  { $regex: primaryKeyword, $options: 'i' } },
+                            { ingredients:  { $regex: primaryKeyword, $options: 'i' } },
+                            { cuisine_path: { $regex: primaryKeyword, $options: 'i' } },
+                        ],
+                    }).limit(10).select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions').lean();
+
+                    finalRecipes = refined.length > 0 ? refined : broadResults;
+                } else {
+                    finalRecipes = broadResults;
+                }
+
+                // Normalise _id to string
+                finalRecipes = finalRecipes.map(r => ({ ...r, _id: r._id?.toString?.() ?? r._id }));
+            }
+
+            finalReply = finalRecipes.length > 0
+                ? pantryNames.length > 0
+                    ? `Found ${finalRecipes.length} recipe${finalRecipes.length > 1 ? 's' : ''} that work with your pantry (${pantryNames.slice(0, 3).join(', ')}${pantryNames.length > 3 ? '…' : ''}), filtered for your preferences!`
+                    : `Found ${finalRecipes.length} recipe${finalRecipes.length > 1 ? 's' : ''} matching your request!`
+                : "I couldn't find any matching recipes. Try a different search term, or add more ingredients to your pantry so I can suggest meals you can make!";
+
+        // ── B: COOKING ────────────────────────────────────────────────────
         } else if (intent.includes('COOKING')) {
-            // --- ROUTE B: SOUS-CHEF ---
 
-            if (!currentRecipeId) {
-                finalReply = "I'd love to help you cook! Please open a specific recipe first so I know what we're making, or ask me about a dish by name.";
-            } else {
-                const cookingPrompt = `
-                    You are Foodie AI, an expert Sous-Chef.
-                    ${pantryContext}
-                    The user is currently cooking. Answer their question concisely and practically.
-                    Where relevant, suggest using pantry ingredients they already have.
-                    User: ${message}
-                `;
-
-                const aiResponse = await groq.chat.completions.create({
-                    messages: [{ role: 'system', content: cookingPrompt }],
-                    model: 'llama-3.3-70b-versatile',
-                    temperature: 0.7,
-                });
-
-                finalReply = aiResponse.choices[0].message.content;
+            let recipeContext = '';
+            if (currentRecipe) {
+                // Truncate directions to avoid excessive token usage
+                const directions = (currentRecipe.directions || '').substring(0, 600);
+                recipeContext = `\nCurrent recipe: ${currentRecipe.recipe_name}
+Ingredients: ${(currentRecipe.ingredients || []).join(', ')}
+Directions (summary): ${directions}${directions.length === 600 ? '…' : ''}
+Cook time: ${currentRecipe.cook_time || 'Unknown'}`;
             }
 
+            const cookingPrompt = `You are Foodie AI, an expert sous-chef and culinary guide.
+
+User profile:
+${profileContext}
+
+${pantryContext}${recipeContext}
+
+Answer the user's cooking question concisely and practically (3–5 sentences max).
+Suggest pantry ingredients they already have when relevant.
+Never suggest ingredients that conflict with their allergies or diet.
+
+User: ${message}`;
+
+            const aiResponse = await groqChat(
+                [{ role: 'system', content: cookingPrompt }],
+                { model: 'llama-3.3-70b-versatile', temperature: 0.7, max_tokens: 350 }
+            );
+            finalReply = aiResponse.choices[0].message.content;
+
+        // ── C: GENERAL ────────────────────────────────────────────────────
         } else {
-            // --- ROUTE C: GENERAL NUTRITION & FACTS ---
 
-            const generalPrompt = `
-                You are Foodie AI, a certified nutritionist and culinary expert.
-                The user has the following medical profile:
-                - Allergies: ${(user.profile.allergies || []).join(', ') || 'none'}
-                - Diets: ${(user.profile.diet || []).join(', ') || 'none'}
-                ${pantryContext}
-                Answer the user's question accurately and safely, keeping their profile in mind.
-                If their pantry is relevant (e.g. they ask what to eat), suggest ideas using what they have.
-                User: ${message}
-            `;
+            const generalPrompt = `You are Foodie AI, a certified nutritionist and culinary expert.
 
-            const aiResponse = await groq.chat.completions.create({
-                messages: [{ role: 'system', content: generalPrompt }],
-                model: 'llama-3.3-70b-versatile',
-                temperature: 0.5,
-            });
+User profile:
+${profileContext}
 
+${pantryContext}
+
+Answer the user's question accurately, keeping their health profile in mind.
+Keep responses concise and practical (3–5 sentences max).
+
+User: ${message}`;
+
+            const aiResponse = await groqChat(
+                [{ role: 'system', content: generalPrompt }],
+                { model: 'llama-3.3-70b-versatile', temperature: 0.5, max_tokens: 300 }
+            );
             finalReply = aiResponse.choices[0].message.content;
         }
 
-        // ── STEP 3: UNIFIED RESPONSE ───────────────────────────
-        res.status(200).json({
-            type: intent,
-            reply: finalReply,
-            recipes: finalRecipes,
-        });
+        // ── STEP 3: RESPOND + CACHE ───────────────────────────────────────
+        const payload = { type: intent, reply: finalReply, recipes: finalRecipes };
+
+        if (!currentRecipeId) cacheSet(cacheKey, payload);
+
+        console.log(`[chat] done  intent:${intent}  total:${Date.now() - t0}ms`);
+        res.status(200).json(payload);
 
     } catch (error) {
-        console.error('Chat Controller Error:', error);
+        console.error('[chat] error:', error.message || error);
         res.status(500).json({ error: 'Foodie AI is currently offline.' });
     }
 };

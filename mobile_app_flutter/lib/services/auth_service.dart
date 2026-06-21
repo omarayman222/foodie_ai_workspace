@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/constants.dart'; // Make sure this path matches your setup!
+import '../utils/constants.dart';
+import 'api_service.dart';
 
 class AuthService {
 
@@ -48,6 +49,7 @@ class AuthService {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('jwt_token', data['token']);
         if (data['userId'] != null) await prefs.setString('user_id', data['userId']);
+        ApiService.clearToken(); // force re-read of the new token on next API call
 
         return {'success': true, 'message': 'Login successful!'};
       } else {
@@ -71,7 +73,8 @@ class AuthService {
   // 4. LOGOUT
   // ---------------------------------------------------------
   Future<void> logout() async {
+    ApiService.clearToken();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('jwt_token'); // Delete the token to log them out
+    await prefs.remove('jwt_token');
   }
 }

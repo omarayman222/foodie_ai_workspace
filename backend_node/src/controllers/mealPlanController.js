@@ -1,6 +1,7 @@
 const axios = require('axios');
 const Pantry = require('../models/Pantry');
 const User = require('../models/User');
+const Recipe = require('../models/Recipe');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -40,7 +41,37 @@ exports.getMealPlan = async (req, res) => {
             const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 10000 });
             recipes = pythonResponse.data.top_recipes || [];
         } catch (e) {
-            console.error('Python service error:', e.message);
+            console.warn('Python service unavailable, using MongoDB fallback for meal plan.');
+        }
+
+        // MongoDB fallback: fetch 14 recipes when Python is offline
+        if (recipes.length === 0) {
+            const filter = {};
+            if (ingredients.length > 0) {
+                filter.$or = [
+                    { recipe_name: { $regex: ingredients[0], $options: 'i' } },
+                    { ingredients: { $regex: ingredients[0], $options: 'i' } },
+                ];
+            }
+            const dislikedCuisines = user.profile.dislikedCuisines || [];
+            if (dislikedCuisines.length > 0) {
+                filter.cuisine_path = { $not: new RegExp(dislikedCuisines.join('|'), 'i') };
+            }
+
+            let mongoRecipes = await Recipe.find(filter)
+                .limit(14)
+                .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+
+            // Not enough from pantry search — pad with popular recipes
+            if (mongoRecipes.length < 14) {
+                const existingIds = mongoRecipes.map(r => r._id);
+                const extra = await Recipe.find({ _id: { $nin: existingIds } })
+                    .limit(14 - mongoRecipes.length)
+                    .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+                mongoRecipes = [...mongoRecipes, ...extra];
+            }
+
+            recipes = mongoRecipes.map(r => { const obj = r.toObject(); return { ...obj, _id: obj._id.toString() }; });
         }
 
         // Build a 7-day plan: assign lunch + dinner without repeating the same recipe

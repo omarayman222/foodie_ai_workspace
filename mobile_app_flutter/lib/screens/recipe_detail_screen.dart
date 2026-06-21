@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/recipe.dart';
 import '../services/api_service.dart';
@@ -18,7 +19,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   bool _isFav = false;
   bool _favLoading = false;
   bool _cookMode = false;
-  int _currentStep = 0;
 
   @override
   void initState() {
@@ -165,7 +165,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   // ── Cook Mode ──────────────────────────────────────────────
   void _enterCookMode() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
-    setState(() { _cookMode = true; _currentStep = 0; });
+    setState(() => _cookMode = true);
   }
 
   void _exitCookMode() {
@@ -178,8 +178,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     if (_cookMode) {
       return _CookModeView(
         recipe: widget.recipe,
-        currentStep: _currentStep,
-        onStepChanged: (s) => setState(() => _currentStep = s),
         onExit: _exitCookMode,
       );
     }
@@ -195,7 +193,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             pinned: true,
             backgroundColor: cs.primary,
             actions: [
-              // Favourite button
               _favLoading
                   ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)))
                   : IconButton(
@@ -303,81 +300,297 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   }
 }
 
-// ── Cook Mode ────────────────────────────────────────────────
-class _CookModeView extends StatelessWidget {
+// ── Cook Mode with Voice + Arabic translation ─────────────────
+class _CookModeView extends StatefulWidget {
   final Recipe recipe;
-  final int currentStep;
-  final void Function(int) onStepChanged;
   final VoidCallback onExit;
-  const _CookModeView({required this.recipe, required this.currentStep, required this.onStepChanged, required this.onExit});
+  const _CookModeView({required this.recipe, required this.onExit});
+
+  @override
+  State<_CookModeView> createState() => _CookModeViewState();
+}
+
+class _CookModeViewState extends State<_CookModeView> {
+  final FlutterTts _tts = FlutterTts();
+  final _api = ApiService();
+
+  int _currentStep = 0;
+  bool _voiceEnabled = true;
+  bool _isSpeaking = false;
+
+  // Language: 'en' or 'ar'
+  String _lang = 'en';
+  List<String>? _arabicSteps;   // null = not yet fetched
+  bool _translating = false;
+  String? _translateError;
+
+  @override
+  void initState() {
+    super.initState();
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    // Non-blocking: speak() interrupts current audio instead of queuing
+    await _tts.awaitSpeakCompletion(false);
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.48);
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(1.0);
+
+    _tts.setStartHandler(() { if (mounted) setState(() => _isSpeaking = true); });
+    _tts.setCompletionHandler(() { if (mounted) setState(() => _isSpeaking = false); });
+    _tts.setCancelHandler(() { if (mounted) setState(() => _isSpeaking = false); });
+
+    _speakStep(_currentStep);
+  }
+
+  List<String> get _activeSteps =>
+      (_lang == 'ar' && _arabicSteps != null) ? _arabicSteps! : widget.recipe.instructions;
+
+  Future<void> _speakStep(int step, {bool afterSwitch = false}) async {
+    if (!_voiceEnabled) return;
+    final steps = _activeSteps;
+    if (steps.isEmpty || step >= steps.length) return;
+
+    // Stop any ongoing speech and give the engine time to settle.
+    // Language switches need a longer pause; normal step navigation needs a short one.
+    await _tts.stop();
+    await Future.delayed(Duration(milliseconds: afterSwitch ? 300 : 150));
+    if (!mounted) return;
+
+    final text = steps[step];
+    if (_lang == 'ar') {
+      final prefix = step == 0 ? 'بدأنا. الخطوة الأولى. ' : 'الخطوة ${step + 1}. ';
+      await _tts.speak('$prefix$text');
+    } else {
+      final prefix = step == 0 ? 'Starting ${widget.recipe.title}. Step 1. ' : 'Step ${step + 1}. ';
+      await _tts.speak('$prefix$text');
+    }
+  }
+
+  Future<void> _stopSpeaking() => _tts.stop();
+
+  void _goToStep(int step) {
+    setState(() => _currentStep = step);
+    _speakStep(step);
+  }
+
+  void _toggleVoice() {
+    setState(() => _voiceEnabled = !_voiceEnabled);
+    if (!_voiceEnabled) {
+      _stopSpeaking();
+    } else {
+      _speakStep(_currentStep);
+    }
+  }
+
+  Future<void> _switchLanguage(String lang) async {
+    if (lang == _lang) return;
+
+    if (lang == 'ar') {
+      if (_arabicSteps == null) {
+        setState(() { _translating = true; _translateError = null; });
+        final result = await _api.translateSteps(
+          widget.recipe.instructions,
+          targetLang: 'Egyptian Arabic dialect (عامية مصرية)',
+        );
+        if (!mounted) return;
+        if (result['success'] == true) {
+          final List<dynamic> raw = result['data']['translations'];
+          setState(() {
+            _arabicSteps = raw.cast<String>();
+            _translating = false;
+          });
+        } else {
+          setState(() {
+            _translateError = result['message'];
+            _translating = false;
+          });
+          return;
+        }
+      }
+      // ar-EG for Egyptian Arabic; fall back to ar-SA then plain ar
+      final egResult = await _tts.setLanguage('ar-EG');
+      if (egResult == 0) {
+        final saResult = await _tts.setLanguage('ar-SA');
+        if (saResult == 0) await _tts.setLanguage('ar');
+      }
+      await _tts.setSpeechRate(0.75); // 1.5× normal (0.5 default)
+    } else {
+      await _tts.setLanguage('en-US');
+      await _tts.setSpeechRate(0.48);
+    }
+
+    setState(() => _lang = lang);
+
+    // Use addPostFrameCallback so the widget has fully rebuilt with the new
+    // language before we fire speak — this guarantees _activeSteps returns
+    // the correct list and the toggle feels instant.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _speakStep(_currentStep, afterSwitch: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final steps = recipe.instructions;
-    if (steps.isEmpty) {
+    final steps = _activeSteps;
+    final isAr   = _lang == 'ar';
+
+    if (widget.recipe.instructions.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('No instructions available', style: GoogleFonts.poppins(color: Colors.white, fontSize: 18)),
           const SizedBox(height: 20),
-          ElevatedButton(onPressed: onExit, child: const Text('Exit Cook Mode')),
+          ElevatedButton(onPressed: widget.onExit, child: const Text('Exit Cook Mode')),
         ])),
       );
     }
 
-    final isFirst = currentStep == 0;
-    final isLast  = currentStep == steps.length - 1;
+    final isFirst = _currentStep == 0;
+    final isLast  = _currentStep == steps.length - 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A2E),
       body: SafeArea(
         child: Column(children: [
-          // Top bar
+
+          // ── Top bar ──────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(children: [
-              IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white70), onPressed: onExit),
-              Expanded(child: Text(recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15))),
-              Text('${currentStep + 1} / ${steps.length}',
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                onPressed: () { _stopSpeaking(); widget.onExit(); },
+              ),
+              Expanded(
+                child: Text(widget.recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+              ),
+
+              // Language toggle EN | AR
+              _LangToggle(current: _lang, onSelect: _switchLanguage, loading: _translating),
+
+              const SizedBox(width: 4),
+
+              // Replay
+              IconButton(
+                tooltip: isAr ? 'إعادة القراءة' : 'Replay step',
+                icon: Icon(Icons.replay_rounded,
+                    color: (_voiceEnabled && _isSpeaking) ? const Color(0xFFFF6B2E) : Colors.white54),
+                onPressed: _voiceEnabled ? () => _speakStep(_currentStep) : null,
+              ),
+
+              // Mute toggle
+              IconButton(
+                tooltip: _voiceEnabled ? (isAr ? 'كتم الصوت' : 'Mute') : (isAr ? 'تشغيل الصوت' : 'Unmute'),
+                icon: Icon(
+                  _voiceEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                  color: _voiceEnabled ? Colors.white : Colors.white30,
+                ),
+                onPressed: _toggleVoice,
+              ),
+
+              Text('${_currentStep + 1} / ${steps.length}',
                   style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13)),
             ]),
           ),
-          // Progress bar
+
+          // ── Translation error banner ──────────────────────────
+          if (_translateError != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(color: Colors.redAccent.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_translateError ?? 'Translation failed.', style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 12))),
+                GestureDetector(onTap: () => setState(() => _translateError = null), child: const Icon(Icons.close, color: Colors.redAccent, size: 16)),
+              ]),
+            ),
+
+          // ── Progress bar ──────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: LinearProgressIndicator(
-              value: (currentStep + 1) / steps.length,
+              value: (_currentStep + 1) / steps.length,
               backgroundColor: Colors.white12,
               valueColor: const AlwaysStoppedAnimation(Color(0xFFFF6B2E)),
               minHeight: 4,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // Step content
+
+          // ── Step content ──────────────────────────────────────
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFFFF6B2E), Color(0xFFFFAA44)]),
-                      shape: BoxShape.circle,
+            child: _translating
+                ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const CircularProgressIndicator(color: Color(0xFFFF6B2E)),
+                    const SizedBox(height: 16),
+                    Text('جاري الترجمة…', style: GoogleFonts.poppins(color: Colors.white60, fontSize: 14)),
+                    Text('Translating to Arabic…', style: GoogleFonts.poppins(color: Colors.white38, fontSize: 12)),
+                  ]))
+                : Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        // Badge — glows orange while speaking
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: _isSpeaking
+                                  ? [const Color(0xFFFF6B2E), const Color(0xFFFFAA44)]
+                                  : [Colors.white24, Colors.white12],
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text('${_currentStep + 1}',
+                              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 24)),
+                        ),
+
+                        // Speaking indicator
+                        const SizedBox(height: 12),
+                        AnimatedOpacity(
+                          opacity: (_voiceEnabled && _isSpeaking) ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 300),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.graphic_eq_rounded, color: Color(0xFFFF6B2E), size: 16),
+                            const SizedBox(width: 4),
+                            Text(isAr ? 'جاري القراءة…' : 'Speaking…',
+                                style: GoogleFonts.poppins(color: const Color(0xFFFF6B2E), fontSize: 12)),
+                          ]),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Step text — RTL for Arabic
+                        Directionality(
+                          textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+                          child: Text(
+                            steps[_currentStep],
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white, fontSize: 18, height: 1.7,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ]),
                     ),
-                    child: Text('${currentStep + 1}',
-                        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 24)),
                   ),
-                  const SizedBox(height: 32),
-                  Text(steps[currentStep],
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, height: 1.7, fontWeight: FontWeight.w500)),
-                ]),
-              ),
-            ),
           ),
-          // Navigation
+
+          // ── Navigation ────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
             child: Row(children: [
@@ -386,9 +599,9 @@ class _CookModeView extends StatelessWidget {
                   opacity: isFirst ? 0.3 : 1.0,
                   duration: const Duration(milliseconds: 200),
                   child: OutlinedButton.icon(
-                    onPressed: isFirst ? null : () => onStepChanged(currentStep - 1),
+                    onPressed: isFirst ? null : () => _goToStep(_currentStep - 1),
                     icon: const Icon(Icons.arrow_back_rounded),
-                    label: const Text('Back'),
+                    label: Text(isAr ? 'السابق' : 'Back'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
@@ -401,9 +614,11 @@ class _CookModeView extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: isLast ? onExit : () => onStepChanged(currentStep + 1),
+                  onPressed: isLast
+                      ? () { _stopSpeaking(); widget.onExit(); }
+                      : () => _goToStep(_currentStep + 1),
                   icon: Icon(isLast ? Icons.check_circle_rounded : Icons.arrow_forward_rounded),
-                  label: Text(isLast ? 'Done!' : 'Next'),
+                  label: Text(isLast ? (isAr ? 'انتهى!' : 'Done!') : (isAr ? 'التالي' : 'Next')),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isLast ? Colors.green : const Color(0xFFFF6B2E),
                     foregroundColor: Colors.white,
@@ -420,6 +635,60 @@ class _CookModeView extends StatelessWidget {
   }
 }
 
+// ── Language toggle chip ──────────────────────────────────────
+class _LangToggle extends StatelessWidget {
+  final String current;
+  final Future<void> Function(String) onSelect;
+  final bool loading;
+  const _LangToggle({required this.current, required this.onSelect, required this.loading});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: loading
+          ? const SizedBox(
+              width: 60, height: 28,
+              child: Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF6B2E)))),
+            )
+          : Row(mainAxisSize: MainAxisSize.min, children: [
+              _LangChip(label: 'EN', active: current == 'en', onTap: () => onSelect('en')),
+              _LangChip(label: 'AR', active: current == 'ar', onTap: () => onSelect('ar')),
+            ]),
+    );
+  }
+}
+
+class _LangChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _LangChip({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFFF6B2E) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(label,
+          style: GoogleFonts.poppins(
+            fontSize: 11, fontWeight: FontWeight.w700,
+            color: active ? Colors.white : Colors.white54,
+          )),
+    ),
+  );
+}
+
+// ── Shared small widgets ──────────────────────────────────────
 class _SectionHeader extends StatelessWidget {
   final String title;
   final IconData icon;

@@ -56,15 +56,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _save() async {
     _profile.name = _nameCtrl.text.trim();
     setState(() => _saving = true);
+
     final result = await _api.updateProfile(_profile.toJson());
     if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(result['success'] == true
-          ? 'Profile saved!'
-          : (result['message'] ?? 'Failed to save profile')),
-      backgroundColor: result['success'] == true ? Colors.green : Colors.redAccent,
-    ));
+
+    if (result['success'] == true) {
+      // Reload from backend so the UI reflects exactly what was persisted
+      await _load();
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Profile saved!'),
+        backgroundColor: Colors.green,
+      ));
+    } else {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['message'] ?? 'Failed to save profile'),
+        backgroundColor: Colors.redAccent,
+      ));
+    }
   }
 
   void _addToList(List<String> list, String hint) async {

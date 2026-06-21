@@ -1,6 +1,7 @@
 const axios = require('axios');
 const User = require('../models/User');
 const Pantry = require('../models/Pantry');
+const Recipe = require('../models/Recipe');
 
 exports.getRecommendations = async (req, res) => {
     try {
@@ -30,25 +31,59 @@ exports.getRecommendations = async (req, res) => {
             disliked_cuisines: user.profile.dislikedCuisines || []
         };
 
-        console.log("PAYLOAD LEAVING NODE:", JSON.stringify(pythonPayload, null, 2));
+        // Try Python AI service first
+        try {
+            const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 10000 });
+            return res.status(200).json({
+                message: "Recommendations successfully generated!",
+                recipes: pythonResponse.data.top_recipes || pythonResponse.data
+            });
+        } catch (pythonError) {
+            const isOffline = pythonError.code === 'ECONNREFUSED' || pythonError.code === 'ETIMEDOUT' || pythonError.code === 'ECONNABORTED';
+            if (!isOffline) {
+                console.error("FastAPI Rejected the Payload:", pythonError.response?.data);
+            }
+            console.warn("Python service unavailable, falling back to MongoDB recommendations.");
+        }
 
-        const pythonResponse = await axios.post('http://127.0.0.1:8000/recommend', pythonPayload, { timeout: 10000 });
+        // MongoDB fallback: search by pantry items or return popular recipes
+        const filter = {};
+        if (pantryItems.length > 0) {
+            const keyword = pantryItems[0];
+            filter.$or = [
+                { recipe_name:  { $regex: keyword, $options: 'i' } },
+                { ingredients:  { $regex: keyword, $options: 'i' } },
+            ];
+        }
 
-        res.status(200).json({
-            message: "Recommendations successfully generated!",
-            recipes: pythonResponse.data.top_recipes || pythonResponse.data
+        // Exclude disliked cuisines
+        const dislikedCuisines = user.profile.dislikedCuisines || [];
+        if (dislikedCuisines.length > 0) {
+            filter.cuisine_path = { $not: new RegExp(dislikedCuisines.join('|'), 'i') };
+        }
+
+        const mongoRecipes = await Recipe.find(filter)
+            .limit(10)
+            .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+
+        // If pantry search returned nothing, fetch a general popular set
+        let recipes = mongoRecipes.length > 0
+            ? mongoRecipes
+            : await Recipe.find(dislikedCuisines.length > 0 ? filter : {})
+                .limit(10)
+                .select('recipe_name prep_time cook_time total_time servings ingredients cuisine_path img_src rating nutrition directions');
+
+        const formatted = recipes.map(r => { const obj = r.toObject(); return { ...obj, _id: obj._id.toString() }; });
+
+        return res.status(200).json({
+            message: pantryItems.length > 0
+                ? `Found ${formatted.length} recipes matching your pantry!`
+                : `Here are some popular recipes for you!`,
+            recipes: formatted
         });
 
     } catch (error) {
-        if (error.response) {
-            console.error("FastAPI Rejected the Payload. Reason:", JSON.stringify(error.response.data, null, 2));
-            return res.status(422).json({
-                error: "Python rejected the data shape.",
-                details: error.response.data
-            });
-        }
-
-        console.error("Bridge Error:", error.message);
-        res.status(503).json({ error: "Recommendation Engine is offline." });
+        console.error("Recommendation Controller Error:", error.message);
+        res.status(500).json({ error: "Failed to fetch recommendations." });
     }
 };

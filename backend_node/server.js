@@ -53,6 +53,9 @@ app.use('/api/meal-plan', mealPlanRoutes);
 const recommendationRoutes = require('./src/routes/recommendationRoutes');
 app.use('/api/recommendations', recommendationRoutes);
 
+const translateRoutes = require('./src/routes/translateRoutes');
+app.use('/api/translate', translateRoutes);
+
 // Basic Test Route
 app.get('/', (req, res) => {
     res.json({ message: "Welcome to the FoodieAI Backend API! 🍳" });
