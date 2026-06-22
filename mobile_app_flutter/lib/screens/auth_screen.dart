@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
 import 'home_screen.dart';
+import 'forgot_password_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -279,6 +280,31 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                               ),
                               validator: (v) => v!.length < 6 ? 'At least 6 characters' : null,
                             ),
+                            // FORGOT PASSWORD (login mode only)
+                            if (_isLogin)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                                  ),
+                                  child: Text(
+                                    'Forgot Password?',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12.5,
+                                      color: const Color(0xFFFF6B00),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
                             const SizedBox(height: 22),
 
                             // SUBMIT BUTTON

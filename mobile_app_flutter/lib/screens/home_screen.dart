@@ -14,7 +14,6 @@ import 'profile_screen.dart';
 import 'favourites_screen.dart';
 import 'meal_plan_screen.dart';
 import 'recipe_detail_screen.dart';
-import 'recipe_filter_screen.dart';
 
 // ── Palette ────────────────────────────────────────────────────────────────
 class _C {
@@ -27,11 +26,6 @@ class _C {
   static const hMid  = Color(0xFFFF6B2E);
   static const hBot  = Color(0xFFFFB340);
 
-  static const recipes = Color(0xFFE04A28);
-  static const pantry  = Color(0xFF28A860);
-  static const chef    = Color(0xFF2878D0);
-  static const shop    = Color(0xFFD07820);
-  static const profile = Color(0xFF8040C0);
 }
 
 // ── Floating orb painter ───────────────────────────────────────────────────
@@ -198,30 +192,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final features = [
-      _Feature(Icons.restaurant_menu_rounded, '🍽️', 'Recipes',
+      _Feature(Icons.soup_kitchen_rounded, '🍳', 'Recipes',
           'Personalized meal ideas based on what\'s in your pantry.',
-          _C.recipes, const RecipesScreen()),
-      _Feature(Icons.kitchen_rounded, '🥦', 'Pantry',
+          const Color(0xFFFF6B35), const Color(0xFFD32F2F), const RecipesScreen()),
+      _Feature(Icons.kitchen_rounded, '🥕', 'Pantry',
           'Track ingredients so the AI can suggest perfect meals.',
-          _C.pantry, const PantryScreen()),
-      _Feature(Icons.chat_bubble_outline_rounded, '🤖', 'Sous Chef',
+          const Color(0xFF43A047), const Color(0xFF00796B), const PantryScreen()),
+      _Feature(Icons.auto_awesome_rounded, '🧑‍🍳', 'Sous Chef',
           'Ask anything — techniques, substitutions, cooking tips.',
-          _C.chef, const SousChefScreen()),
-      _Feature(Icons.shopping_cart_outlined, '🛒', 'Shopping List',
+          const Color(0xFF42A5F5), const Color(0xFF1565C0), const SousChefScreen()),
+      _Feature(Icons.shopping_basket_rounded, '🧺', 'Shopping List',
           'Build smart grocery lists straight from your recipes.',
-          _C.shop, const ShoppingListScreen()),
-      _Feature(Icons.manage_accounts_outlined, '👤', 'My Profile',
+          const Color(0xFFFFB300), const Color(0xFFBF360C), const ShoppingListScreen()),
+      _Feature(Icons.account_circle_rounded, '👨‍🍳', 'My Profile',
           'Set allergies, diets and dislikes for safer results.',
-          _C.profile, const ProfileScreen()),
-      _Feature(Icons.favorite_rounded, '❤️', 'Favourites',
+          const Color(0xFFAB47BC), const Color(0xFF6A1B9A), const ProfileScreen()),
+      _Feature(Icons.favorite_rounded, '💖', 'Favourites',
           'All the recipes you\'ve saved — ready to cook anytime.',
-          const Color(0xFFD04060), const FavouritesScreen()),
-      _Feature(Icons.calendar_month_rounded, '📅', 'Meal Plan',
+          const Color(0xFFEF5350), const Color(0xFFAD1457), const FavouritesScreen()),
+      _Feature(Icons.edit_calendar_rounded, '🗓️', 'Meal Plan',
           'AI-generated 7-day plan based on your pantry.',
-          const Color(0xFF2060B0), const MealPlanScreen()),
-      _Feature(Icons.tune_rounded, '🔍', 'Filter Recipes',
-          'Browse and filter recipes by cuisine, diet, and category.',
-          const Color(0xFFD4622A), const RecipeFilterScreen()),
+          const Color(0xFF5C6BC0), const Color(0xFF283593), const MealPlanScreen()),
     ];
 
     return Scaffold(
@@ -647,9 +638,10 @@ class _Feature {
   final IconData icon;
   final String emoji, title, description;
   final Color color;
+  final Color color2;
   final Widget screen;
   const _Feature(this.icon, this.emoji, this.title, this.description,
-      this.color, this.screen);
+      this.color, this.color2, this.screen);
 }
 
 // ── Feature card with hover ────────────────────────────────────────────────
@@ -664,13 +656,7 @@ class _FeatureCard extends StatefulWidget {
 class _FeatureCardState extends State<_FeatureCard> {
   bool _hovered = false;
 
-  List<Color> get _grad {
-    final c = widget.feature.color;
-    return [
-      Color.lerp(c, Colors.white, 0.10)!,
-      Color.lerp(c, Colors.black, 0.20)!,
-    ];
-  }
+  List<Color> get _grad => [widget.feature.color, widget.feature.color2];
 
   @override
   Widget build(BuildContext context) {
@@ -684,7 +670,7 @@ class _FeatureCardState extends State<_FeatureCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
-          height: 90,
+          height: 100,
           transform: Matrix4.identity()
             ..translateByDouble(0.0, _hovered ? -4.0 : 0.0, 0.0, 1.0),
           decoration: BoxDecoration(
@@ -711,7 +697,7 @@ class _FeatureCardState extends State<_FeatureCard> {
                     left: Radius.circular(20)),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  width: _hovered ? 100 : 96,
+                  width: _hovered ? 108 : 102,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                         colors: _grad,
@@ -719,28 +705,46 @@ class _FeatureCardState extends State<_FeatureCard> {
                         end: Alignment.bottomRight),
                   ),
                   child: Stack(children: [
+                    // Large emoji — bottom-right, partially cropped
                     Positioned(
-                      right: -8, bottom: -8,
-                      child: Opacity(
-                        opacity: _hovered ? 0.45 : 0.28,
+                      right: -10, bottom: -10,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 200),
+                        opacity: _hovered ? 0.55 : 0.32,
                         child: Text(widget.feature.emoji,
-                            style: const TextStyle(fontSize: 58)),
+                            style: const TextStyle(fontSize: 64)),
                       ),
                     ),
+                    // Soft glow ring behind the icon
+                    Center(
+                      child: Container(
+                        width: 52, height: 52,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: _hovered ? 0.28 : 0.14),
+                              blurRadius: 18,
+                              spreadRadius: 4,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Icon circle
                     Center(
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        padding: EdgeInsets.all(_hovered ? 12 : 10),
+                        padding: EdgeInsets.all(_hovered ? 13 : 11),
                         decoration: BoxDecoration(
-                          color: Colors.white
-                              .withValues(alpha: _hovered ? 0.35 : 0.22),
+                          color: Colors.white.withValues(alpha: _hovered ? 0.38 : 0.24),
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: Colors.white
-                                  .withValues(alpha: 0.6)),
+                              color: Colors.white.withValues(alpha: 0.65),
+                              width: 1.5),
                         ),
-                        child: Icon(widget.feature.icon,
-                            color: Colors.white, size: 22),
+                        child: Icon(widget.feature.icon, color: Colors.white, size: 24),
                       ),
                     ),
                   ]),
@@ -939,6 +943,125 @@ class _PicksEmpty extends StatelessWidget {
   }
 }
 
+// ── Today's Picks — photo layer ───────────────────────────────────────────
+enum _PickImgStatus { loading, loaded, error }
+
+class _PickPhotoLayer extends StatefulWidget {
+  final String url;
+  final List<Color> grad;
+  final String emoji;
+  const _PickPhotoLayer({required this.url, required this.grad, required this.emoji});
+
+  @override
+  State<_PickPhotoLayer> createState() => _PickPhotoLayerState();
+}
+
+class _PickPhotoLayerState extends State<_PickPhotoLayer> {
+  _PickImgStatus _status = _PickImgStatus.loading;
+
+  @override
+  void initState() {
+    super.initState();
+    // If no URL provided, skip straight to the emoji display
+    if (widget.url.isEmpty) {
+      _status = _PickImgStatus.error;
+    }
+  }
+
+  Widget _emojiDisplay() {
+    return Container(
+      height: 120,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: widget.grad,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Large background emoji (faded, bottom-right)
+          Positioned(
+            right: -12, bottom: -12,
+            child: Opacity(
+              opacity: 0.18,
+              child: Text(widget.emoji, style: const TextStyle(fontSize: 80)),
+            ),
+          ),
+          // Centered glow circle
+          Center(
+            child: Container(
+              width: 64, height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    blurRadius: 20,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Main emoji
+          Center(
+            child: Text(widget.emoji, style: const TextStyle(fontSize: 46)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_status == _PickImgStatus.error) return _emojiDisplay();
+
+    return SizedBox(
+      height: 120,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Shimmer while loading
+          if (_status == _PickImgStatus.loading)
+            Shimmer.fromColors(
+              baseColor: const Color(0xFFE8E0D8),
+              highlightColor: const Color(0xFFF5F0EB),
+              child: Container(color: const Color(0xFFE8E0D8)),
+            ),
+
+          // Network image
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 350),
+            opacity: _status == _PickImgStatus.loaded ? 1.0 : 0.0,
+            child: Image.network(
+              widget.url,
+              fit: BoxFit.cover,
+              frameBuilder: (_, child, frame, __) {
+                if (frame != null && _status != _PickImgStatus.loaded) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _status = _PickImgStatus.loaded);
+                  });
+                }
+                return child;
+              },
+              errorBuilder: (_, __, ___) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _status = _PickImgStatus.error);
+                });
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Today's Picks — single card ───────────────────────────────────────────
 class _PickCard extends StatefulWidget {
   final Recipe recipe;
@@ -961,20 +1084,10 @@ class _PickCardState extends State<_PickCard> {
     [Color(0xFF8040C0), Color(0xFFB080E0)],
   ];
 
-  static const _fallbacks = [
-    'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&q=80',
-    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80',
-    'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=400&q=80',
-    'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&q=80',
-    'https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=400&q=80',
-  ];
 
   @override
   Widget build(BuildContext context) {
     final grad = _gradients[widget.index % _gradients.length];
-    final img = widget.recipe.imageUrl.isNotEmpty
-        ? widget.recipe.imageUrl
-        : _fallbacks[widget.index % _fallbacks.length];
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -1008,24 +1121,10 @@ class _PickCardState extends State<_PickCard> {
                 // Image area
                 Stack(
                   children: [
-                    Image.network(
-                      img,
-                      height: 120,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        height: 120,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: grad,
-                              begin: Alignment.topLeft, end: Alignment.bottomRight),
-                        ),
-                        child: Center(
-                          child: Text(
-                            ['🍽️', '🥗', '🍜', '🍕', '🥘'][widget.index % 5],
-                            style: const TextStyle(fontSize: 40),
-                          ),
-                        ),
-                      ),
+                    _PickPhotoLayer(
+                      url: widget.recipe.imageUrl,
+                      grad: grad,
+                      emoji: '👨‍🍳',
                     ),
                     // Gradient overlay
                     Positioned(

@@ -48,7 +48,21 @@ class _SousChefScreenState extends State<SousChefScreen> {
     _controller.clear();
     _scrollToBottom();
 
-    final result = await _api.sendChatMessage(text, currentRecipeId: widget.recipeId);
+    // Last 6 turns as history (skip SEARCH recipe-card messages, they have no text to replay)
+    final history = _messages
+        .where((m) => m.type != 'SEARCH')
+        .toList()
+        .reversed
+        .take(6)
+        .toList()
+        .reversed
+        .map((m) => <String, String>{
+              'role': m.isUser ? 'user' : 'assistant',
+              'content': m.text,
+            })
+        .toList();
+
+    final result = await _api.sendChatMessage(text, currentRecipeId: widget.recipeId, history: history);
 
     if (!mounted) return;
     if (result['success'] == true) {

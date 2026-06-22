@@ -5,7 +5,6 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 function extractJson(text) {
     const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     const src = fenced ? fenced[1] : text;
-    // Find the first { … } block
     const start = src.indexOf('{');
     const end   = src.lastIndexOf('}');
     if (start === -1 || end === -1) throw new Error('No JSON object found in response');
@@ -23,65 +22,70 @@ exports.translate = async (req, res) => {
             return res.status(400).json({ error: 'Maximum 100 strings per request.' });
         }
 
-        // Index each step so the model can't accidentally merge or skip them
         const numbered = texts.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
         const isEgyptian = targetLang.toLowerCase().includes('egyptian') || targetLang.includes('مصر');
 
-        const egyptianPrompt = isEgyptian ? `You are an Egyptian home cook translating a recipe into your natural everyday spoken language — Egyptian colloquial Arabic (عامية مصرية) as heard in Cairo kitchens.
-
-RULES — follow every one of them:
-1. Write ONLY in Egyptian colloquial Arabic. NEVER write in Modern Standard Arabic (فصحى).
-2. Use natural spoken Egyptian sentence structure and connectors: "وبعدين", "لحد ما", "من غير ما", "على طول", "خليه", "اديه", "هيبقى".
-3. Egyptian kitchen vocabulary — ALWAYS use these, never the formal alternatives:
-   • حط / حطي  (not ضع / ضعي)
-   • ضيف / زود  (not أضف)
-   • قلب / اقلب  (not اخلط / امزج)
-   • سخن / حمي  (not أسخن)
-   • صب / اصب  (not اسكب / اسقِ)
-   • هات / جيب  (not احضر)
-   • سيب / خليه  (not اترك)
-   • شرح / اقطع  (not قطع)
-   • برّ / برّد  (not اترك يبرد)
-   • الفرن  → "الفرن", baking pan → "الصينية", pot → "الحلة", pan → "الطاسة", bowl → "وعا / طبق"
-   • دقيقة → "دقيقة", درجة حرارة → "درجة" أو "درجة حرارة"
-4. Translate temperatures, quantities, and timings accurately — do NOT alter numbers.
-5. Keep steps concise and natural, as if you are speaking directly to someone in the kitchen.
-6. Do NOT add commentary, do NOT use formal connectives like "ثم" or "بعد ذلك" — use "وبعدين" instead.
-
-EXAMPLES of Egyptian colloquial cooking style:
-  English: "Preheat the oven to 200°C." → "سخن الفرن على 200 درجة الأول."
-  English: "Add the onion and stir until golden." → "ضيف البصل وقلبه لحد ما يبقى دهبي."
-  English: "Pour the mixture into a greased baking pan." → "صب الخليط في الصينية المدهونة."
-  English: "Cover and let it simmer for 20 minutes." → "غطيه وسيبه يتهرى على نار هادية 20 دقيقة."
-  English: "Season with salt and pepper to taste." → "بهره بالملح والفلفل على حسب دوقك."
-  English: "Bring a pot of salted water to a boil." → "جيب حلة ميه مملحة وخليها تغلي."
-  English: "Chop the garlic finely." → "اقطع التوم ناعم."
-  English: "Remove from heat and allow to cool." → "شيله من على النار وسيبه يبرد شوية."
-  English: "Bake for 30 minutes until golden." → "حطه في الفرن 30 دقيقة لحد ما يبقى دهبي."
-  English: "Mix flour, sugar, and butter together." → "اخلط الدقيق والسكر والزبدة مع بعض كويس."
-
-Now translate the following numbered cooking steps using this exact style.
-Return a JSON object with a single key "translations" whose value is an array of translated strings in the SAME order and count as the input.
-Do NOT include step numbers in the translated strings. No markdown, no extra text.
+        // ── Egyptian Arabic ────────────────────────────────────────────────
+        // system: persona + hard vocabulary rules (Arabic)
+        // user:   14 worked examples + the actual steps
+        const messages = isEgyptian ? [
+            {
+                role: 'system',
+                content: [
+                    'أنت طنط فوزية — ست بيت مصرية من القاهرة بتشرحي خطوات الطبخ لبنتك بالعامية المصرية الخالصة.',
+                    '',
+                    'قواعد صارمة:',
+                    '• عامية مصرية فقط — ممنوع أي كلمة فصحى خالص.',
+                    '• "حطي" مش "ضعي". "ضيفي/زودي" مش "أضيفي". "قلبي" مش "اخلطي". "صبي" مش "اسكبي". "جيبي" مش "احضري". "سيبيه" مش "اتركيه". "شيليه" مش "أزيليه".',
+                    '• الفراخ (مش الدجاج). الحلة (pot). الطاسة (pan). الصينية (baking tray). وعا (bowl). ناعم (finely). دهبي (golden). كويس (well/good).',
+                    '• وصلي بـ "وبعدين", "لحد ما", "من غير ما", "وخليه". مش "ثم" أو "بعد ذلك".',
+                    '• الأرقام والكميات ودرجات الحرارة تبقى صح بالظبط — ماتغيريش أي رقم.',
+                    '• كل خطوة جملة أو جملتين بالكثير — مباشرة وواضحة.'
+                ].join('\n')
+            },
+            {
+                role: 'user',
+                content: [
+                    'ترجمي الخطوات دي للعامية المصرية.',
+                    'ردي بـ JSON بس: {"translations": ["..."]} — نفس الترتيب، نفس العدد، من غير أرقام جوا الترجمة.',
+                    '',
+                    'أمثلة على الأسلوب:',
+                    '"Bring a large pot of salted water to a boil." → "جيبي حلة كبيرة ميه مملحة وخليها تغلي كويس."',
+                    '"Add the onion and stir until golden brown." → "ضيفي البصل وقلبيه لحد ما يبقى دهبي."',
+                    '"Season with salt, pepper, and cumin to taste." → "بهريه بالملح والفلفل والكمون على حسب دوقك."',
+                    '"Cover and let it simmer on low heat for 20 minutes." → "غطيه وسيبيه يتهرى على نار هادية 20 دقيقة."',
+                    '"Remove from heat and allow to cool slightly." → "شيليه من على النار وسيبيه يبرد شوية."',
+                    '"Preheat the oven to 180°C." → "سخني الفرن على 180 درجة الأول."',
+                    '"Chop the tomatoes finely and set aside." → "اقطعي الطماطم ناعم وحطيهم جنب."',
+                    '"Pour the sauce over the chicken and bake for 45 minutes." → "صبي الصلصة على الفراخ وحطيه في الفرن 45 دقيقة."',
+                    '"Mix flour, sugar, and butter until smooth." → "اخلطي الدقيق والسكر والزبدة مع بعض لحد ما يبقى ناعم."',
+                    '"Let the dough rest for 1 hour." → "سيبي العجينة ترتاح ساعة."',
+                    '"Fry until crispy and golden." → "احمريه لحد ما يبقى مقرمش ودهبي."',
+                    '"Fold gently so you don\'t deflate the batter." → "اطويه بهدوء من غير ما تكسري الهوا جوه."',
+                    '"Drain the pasta and reserve some pasta water." → "صفي المكرونة واحتفظي بشوية من ميت السلق."',
+                    '"Taste and adjust seasoning." → "دوقيه وظبطي التتبيلة على حسب دوقك."',
+                    '',
+                    `الخطوات (${texts.length}):`,
+                    numbered
+                ].join('\n')
+            }
+        ] : [
+            {
+                role: 'user',
+                content: `You are a professional culinary translator. Translate the following numbered cooking steps to ${targetLang}.
+Return ONLY a JSON object: {"translations": ["step 1", "step 2", ...]} in the SAME order and count as the input. No step numbers inside translations. No markdown.
 
 Input (${texts.length} steps):
-${numbered}` : `You are a professional culinary translator.
-Translate the following numbered cooking steps to ${targetLang}.
-Return a JSON object with a single key "translations" whose value is an array of the translated strings, in the SAME order and count as the input.
-Do NOT include the step numbers in the translated strings.
-Do NOT add any extra text, commentary, or markdown outside the JSON.
-
-Input (${texts.length} steps):
-${numbered}`;
-
-        const prompt = egyptianPrompt;
+${numbered}`
+            }
+        ];
 
         const response = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.1,
-            max_tokens: 6000,
+            messages,
+            model: 'llama-3.1-8b-instant',
+            temperature: 0.15,
+            max_tokens: 1500,
         });
 
         const raw = response.choices[0].message.content;
@@ -102,7 +106,6 @@ ${numbered}`;
             return res.status(500).json({ error: 'Unexpected translation format. Please retry.' });
         }
 
-        // If the model returns fewer strings than input, pad with originals so the app doesn't break
         if (translations.length < texts.length) {
             console.warn(`[translate] count mismatch: got ${translations.length}, expected ${texts.length} — padding with originals`);
             while (translations.length < texts.length) {
@@ -110,7 +113,6 @@ ${numbered}`;
             }
         }
 
-        // Trim to exact length in case of extras
         translations = translations.slice(0, texts.length);
 
         res.status(200).json({ translations });

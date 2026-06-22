@@ -97,10 +97,14 @@ class ApiService {
   }
 
   // ── Chat ──────────────────────────────────────────────────
-  Future<Map<String, dynamic>> sendChatMessage(String message, {String? currentRecipeId}) async {
+  Future<Map<String, dynamic>> sendChatMessage(
+    String message, {
+    String? currentRecipeId,
+    List<Map<String, String>> history = const [],
+  }) async {
     try {
       final headers = await _getHeaders();
-      final body = <String, dynamic>{'message': message};
+      final body = <String, dynamic>{'message': message, 'history': history};
       if (currentRecipeId != null) body['currentRecipeId'] = currentRecipeId;
       final response = await http.post(
         Uri.parse('${ApiConstants.baseUrl}/chat'),

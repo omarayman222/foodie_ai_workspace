@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../utils/theme_notifier.dart';
+import 'email_config_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -249,6 +250,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       value: mode == ThemeMode.dark,
                       activeThumbColor: Colors.indigo,
                       onChanged: (_) => ThemeNotifier.instance.toggle(),
+                    ),
+                  ),
+                ),
+                // ── Email sender config ───────────────────────
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)],
+                  ),
+                  child: ListTile(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B00).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.email_rounded, color: Color(0xFFFF6B00), size: 20),
+                    ),
+                    title: Text('Sender Email Setup',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
+                    subtitle: Text('Configure email for OTP password resets',
+                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+                    trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const EmailConfigScreen()),
                     ),
                   ),
                 ),

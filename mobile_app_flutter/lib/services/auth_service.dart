@@ -70,6 +70,108 @@ class AuthService {
   }
 
   // ---------------------------------------------------------
+  // EMAIL SENDER CONFIG (stored in DB)
+  // ---------------------------------------------------------
+  Future<Map<String, dynamic>> getEmailConfig() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/settings/email-config'),
+      ).timeout(const Duration(seconds: 10));
+      Map<String, dynamic> data = {};
+      try { data = jsonDecode(response.body); } catch (_) {}
+      if (response.statusCode == 200) return {'success': true, 'data': data};
+      return {'success': false, 'message': data['error'] ?? 'Failed to load config'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot reach server.'};
+    }
+  }
+
+  Future<Map<String, dynamic>> saveEmailConfig(String email, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/settings/email-config'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'emailUser': email, 'emailPass': password}),
+      ).timeout(const Duration(seconds: 10));
+      Map<String, dynamic> data = {};
+      try { data = jsonDecode(response.body); } catch (_) {}
+      if (response.statusCode == 200) return {'success': true, 'message': data['message']};
+      return {'success': false, 'message': data['error'] ?? 'Failed to save config'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot reach server.'};
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 3b. REQUEST OTP FOR PASSWORD RESET
+  // ---------------------------------------------------------
+  Future<Map<String, dynamic>> requestOtp(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/forgot-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      ).timeout(const Duration(seconds: 15));
+
+      Map<String, dynamic> data = {};
+      try { data = jsonDecode(response.body); } catch (_) {}
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'OTP sent'};
+      }
+      return {'success': false, 'message': data['error'] ?? 'Failed to send OTP (status ${response.statusCode})'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot reach server. Please restart Node.js and try again.'};
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 3b2. CHECK OTP (validate without consuming — step 2 gate)
+  // ---------------------------------------------------------
+  Future<Map<String, dynamic>> checkOtp(String email, String otp) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/check-otp'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'otp': otp}),
+      ).timeout(const Duration(seconds: 15));
+
+      Map<String, dynamic> data = {};
+      try { data = jsonDecode(response.body); } catch (_) {}
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'OTP valid'};
+      }
+      return {'success': false, 'message': data['error'] ?? 'Invalid OTP'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot reach server.'};
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 3c. RESET PASSWORD WITH OTP
+  // ---------------------------------------------------------
+  Future<Map<String, dynamic>> resetPassword(String email, String otp, String newPassword) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/auth/reset-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'otp': otp, 'newPassword': newPassword}),
+      ).timeout(const Duration(seconds: 15));
+
+      Map<String, dynamic> data = {};
+      try { data = jsonDecode(response.body); } catch (_) {}
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Password reset'};
+      }
+      return {'success': false, 'message': data['error'] ?? 'Failed to reset password (status ${response.statusCode})'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot reach server. Please restart Node.js and try again.'};
+    }
+  }
+
+  // ---------------------------------------------------------
   // 4. LOGOUT
   // ---------------------------------------------------------
   Future<void> logout() async {
